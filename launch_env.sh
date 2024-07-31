@@ -12,3 +12,4 @@ fi
 
 export STAGING_ROOT="/data/safe_staging"
 export FINGERPRINT="FORD_MUSTANG_MACH_E_MK1"
+export fingerprint="FORD_MUSTANG_MACH_E_MK1"
