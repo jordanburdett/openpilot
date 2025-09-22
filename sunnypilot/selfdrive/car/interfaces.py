@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 from typing import Any
 
 from opendbc.car import structs
+from opendbc.car.ford.values import CAR as FORD_CAR
 from opendbc.car.interfaces import CarInterfaceBase
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
@@ -55,6 +56,13 @@ def _initialize_intelligent_cruise_button_management(CP: structs.CarParams, CP_S
 def setup_interfaces(CI: CarInterfaceBase, params: Params = None) -> None:
   CP = CI.CP
   CP_SP = CI.CP_SP
+
+  if CP.carFingerprint == FORD_CAR.FORD_MUSTANG_MACH_E_MK1:
+    from openpilot.sunnypilot.selfdrive.car.ford.mach_e_controller import MachECarController
+
+    dbc_names = {bus: parser.dbc_name for bus, parser in CI.can_parsers.items()}
+    if not isinstance(CI.CC, MachECarController):
+      CI.CC = MachECarController(dbc_names, CP, CP_SP)
 
   _initialize_neural_network_lateral_control(CI, CP, CP_SP, params)
   _initialize_intelligent_cruise_button_management(CP, CP_SP, params)
