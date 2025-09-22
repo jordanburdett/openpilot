@@ -24,34 +24,35 @@ class _MachELateralController:
 
     self.curvature_filter = FirstOrderFilter(0.0, 0.35, self.dt, initialized=False)
     self.path_angle_filter = FirstOrderFilter(0.0, 0.3, self.dt, initialized=False)
+    self.curvature_rate_filter = FirstOrderFilter(0.0, 0.25, self.dt, initialized=False)
 
     self.curvature_rate_max = 0.0008  # 1/m^2
     self.path_angle_max = 0.12  # radians
     self.path_angle_gain = 0.7
 
     self.last_filtered_curvature = 0.0
+    self.last_limited_curvature = 0.0
 
   def _reset_filters(self):
     self.curvature_filter.initialized = False
     self.curvature_filter.x = 0.0
-    self.path_angle_filter.initialized = False
-    self.path_angle_filter.x = 0.0
+    for filt in (self.path_angle_filter, self.curvature_rate_filter):
+      filt.initialized = False
+      filt.x = 0.0
     self.last_filtered_curvature = 0.0
+    self.last_limited_curvature = 0.0
 
   def update(self, lat_active: bool, desired_curvature: float, steering_angle_deg: float,
-             v_ego_raw: float, steering_pressed: bool) -> tuple[float, float, float]:
+             v_ego_raw: float, steering_pressed: bool) -> tuple[float, float]:
     if not lat_active or v_ego_raw < 0.5:
       self._reset_filters()
-      return desired_curvature, 0.0, 0.0
+      return desired_curvature, 0.0
 
     v_ref = max(v_ego_raw, 1.0)
 
     filtered_curvature = self.curvature_filter.update(desired_curvature)
     curvature_delta = filtered_curvature - self.last_filtered_curvature
     self.last_filtered_curvature = filtered_curvature
-
-    curvature_rate = curvature_delta / (self.dt * v_ref)
-    curvature_rate = float(np.clip(curvature_rate, -self.curvature_rate_max, self.curvature_rate_max))
 
     desired_angle_deg = math.degrees(self.VM.get_steer_from_curvature(-filtered_curvature, v_ref, 0.0))
     steering_delta = (steering_angle_deg - desired_angle_deg) * math.pi / 180.0
@@ -65,7 +66,23 @@ class _MachELateralController:
       path_angle = self.path_angle_filter.update(path_angle_target)
       path_angle = float(np.clip(path_angle, -self.path_angle_max, self.path_angle_max))
 
-    return filtered_curvature, path_angle, curvature_rate
+    self.last_filtered_curvature = filtered_curvature
+    return filtered_curvature, path_angle
+
+  def curvature_rate(self, limited_curvature: float, v_ego_raw: float, lat_active: bool, steering_pressed: bool) -> float:
+    if not lat_active or v_ego_raw < 0.5 or steering_pressed:
+      self.curvature_rate_filter.initialized = False
+      self.curvature_rate_filter.x = 0.0
+      self.last_limited_curvature = limited_curvature
+      return 0.0
+
+    v_ref = max(v_ego_raw, 1.0)
+    delta = limited_curvature - self.last_limited_curvature
+    self.last_limited_curvature = limited_curvature
+
+    rate_raw = delta / (self.dt * v_ref)
+    rate_filtered = self.curvature_rate_filter.update(rate_raw)
+    return float(np.clip(rate_filtered, -self.curvature_rate_max, self.curvature_rate_max))
 
 
 class MachECarController(FordCarController):
@@ -74,6 +91,25 @@ class MachECarController(FordCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     super().__init__(dbc_names, CP, CP_SP)
     self._mach_e_controller = _MachELateralController(CP)
+
+  def _create_lat_ctl2_msg(self, mode: int, ramp_type: int, precision_type: int,
+                           path_angle: float, curvature: float, curvature_rate: float, counter: int):
+    values = {
+      "LatCtl_D2_Rq": mode,
+      "LatCtlRampType_D_Rq": ramp_type,
+      "LatCtlPrecision_D_Rq": precision_type,
+      "LatCtlPathOffst_L_Actl": 0.0,
+      "LatCtlPath_An_Actl": path_angle,
+      "LatCtlCurv_No_Actl": curvature,
+      "LatCtlCrv_NoRate2_Actl": curvature_rate,
+      "HandsOffCnfm_B_Rq": 0,
+      "LatCtlPath_No_Cnt": counter,
+      "LatCtlPath_No_Cs": 0,
+    }
+
+    dat = self.packer.make_can_msg("LateralMotionControl2", 0, values)[1]
+    values["LatCtlPath_No_Cs"] = fordcan.calculate_lat_ctl2_checksum(mode, counter, dat)
+    return self.packer.make_can_msg("LateralMotionControl2", self.CAN.main, values)
 
   def update(self, CC, CC_SP, CS, now_nanos):  # pylint: disable=too-many-locals
     can_sends = []
@@ -108,8 +144,7 @@ class MachECarController(FordCarController):
         apply_curvature = self.anti_overshoot_curvature_last
 
       path_angle_cmd = 0.0
-      curvature_rate_cmd = 0.0
-      apply_curvature, path_angle_cmd, curvature_rate_cmd = self._mach_e_controller.update(
+      apply_curvature, path_angle_cmd = self._mach_e_controller.update(
         CC.latActive, apply_curvature, CS.out.steeringAngleDeg, CS.out.vEgoRaw, CS.out.steeringPressed
       )
 
@@ -119,11 +154,17 @@ class MachECarController(FordCarController):
       self.apply_curvature_last = apply_ford_curvature_limits(apply_curvature, self.apply_curvature_last, current_curvature,
                                                               CS.out.vEgoRaw, 0., CC.latActive, self.CP)
 
+      curvature_rate_cmd = self._mach_e_controller.curvature_rate(self.apply_curvature_last, CS.out.vEgoRaw,
+                                                                  CC.latActive, CS.out.steeringPressed)
+
       if self.CP.flags & FordFlags.CANFD:
         mode = 1 if CC.latActive else 0
         counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
-        can_sends.append(fordcan.create_lat_ctl2_msg(self.packer, self.CAN, mode, 0., -path_angle_cmd,
-                                                     -self.apply_curvature_last, -curvature_rate_cmd, counter))
+        ramp_type = 2 if CC.latActive else 0
+        precision_type = 1
+        can_sends.append(self._create_lat_ctl2_msg(mode, ramp_type, precision_type,
+                                                   -path_angle_cmd, -self.apply_curvature_last,
+                                                   -curvature_rate_cmd, counter))
       else:
         can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, CC.latActive, 0., 0., -self.apply_curvature_last, 0.))
 
