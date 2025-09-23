@@ -27,7 +27,7 @@ class _MachELateralController:
     self.curvature_filter = FirstOrderFilter(0.0, 0.35, self.dt, initialized=False)
     self.curvature_rate_filter = FirstOrderFilter(0.0, 0.25, self.dt, initialized=False)
 
-    self.curvature_rate_max = 0.0008  # 1/m^2
+    self.curvature_rate_max = 0.001  # 1/m^2
     self.curvature_max = 0.02  # 1/m
 
     self.last_filtered_curvature = 0.0
@@ -36,12 +36,12 @@ class _MachELateralController:
     self.curvature_rate_delta_t = 0.3  # seconds
     maxlen = max(1, int(round(self.curvature_rate_delta_t / max(self.dt, 1e-3))))
     self.curvature_rate_deque = deque(maxlen=maxlen)
-    self.curvature_rate_speed_bp = [0.0, 14.5, 15.5]
-    self.curvature_rate_speed_v = [1.0, 1.0, 0.0]
+    self.curvature_rate_speed_bp = [0.0, 14.5, 17.0]
+    self.curvature_rate_speed_v = [1.0, 1.0, 0.5]
     self.curvature_rate_curvature_bp = [0.0, 0.008, 0.01]
     self.curvature_rate_curvature_v = [0.0, 0.0, 1.0]
     self.large_curve_factor_bp = [0.001, 0.02]
-    self.large_curve_factor_v = [1.0, 0.8]
+    self.large_curve_factor_v = [1.0, 0.85]
 
   def _reset_filters(self):
     self.curvature_filter.initialized = False
@@ -110,6 +110,26 @@ class MachECarController(FordCarController):
     super().__init__(dbc_names, CP, CP_SP)
     self._mach_e_controller = _MachELateralController(CP)
     self._lat_active_prev = False
+    self._curvature_blend_ratio = 0.35
+
+  def _limit_curvature(self, desired_curvature: float, current_curvature: float,
+                       v_ego_raw: float, lat_active: bool) -> float:
+    curv = desired_curvature
+
+    if v_ego_raw > 9.0:
+      curvature_error_limit = 0.0035
+      curv = float(np.clip(curv, current_curvature - curvature_error_limit,
+                           current_curvature + curvature_error_limit))
+
+    curv = apply_ford_curvature_limits(curv, self.apply_curvature_last, current_curvature,
+                                       v_ego_raw, 0., lat_active, self.CP)
+
+    if self.CP.flags & FordFlags.CANFD:
+      max_lat_accel = 2.6  # m/s^2, slightly above stock 2.4 for more authority
+      curvature_accel_limit = max_lat_accel / (max(v_ego_raw, 1.0) ** 2)
+      curv = float(np.clip(curv, -curvature_accel_limit, curvature_accel_limit))
+
+    return curv
 
   def _create_lat_ctl_msg(self, lat_active: bool, ramp_type: int, precision_type: int,
                           path_angle: float, curvature: float, curvature_rate: float):
@@ -178,16 +198,19 @@ class MachECarController(FordCarController):
         self.anti_overshoot_curvature_last = anti_overshoot(actuators.curvature, self.anti_overshoot_curvature_last, CS.out.vEgoRaw)
         apply_curvature = self.anti_overshoot_curvature_last
 
+      current_curvature = -CS.out.yawRate / max(CS.out.vEgoRaw, 0.1)
+
       path_angle_cmd = 0.0
       apply_curvature, path_angle_cmd = self._mach_e_controller.update(
         lat_active, apply_curvature, CS.out.steeringAngleDeg, CS.out.vEgoRaw, CS.out.steeringPressed
       )
 
-      # apply rate limits, curvature error limit, and clip to signal range
-      current_curvature = -CS.out.yawRate / max(CS.out.vEgoRaw, 0.1)
+      blend = self._curvature_blend_ratio if lat_active else 0.0
+      if blend > 0.0:
+        apply_curvature = (current_curvature * blend) + (apply_curvature * (1.0 - blend))
 
-      self.apply_curvature_last = apply_ford_curvature_limits(apply_curvature, self.apply_curvature_last, current_curvature,
-                                                              CS.out.vEgoRaw, 0., lat_active, self.CP)
+      self.apply_curvature_last = self._limit_curvature(apply_curvature, current_curvature,
+                                                        CS.out.vEgoRaw, lat_active)
 
       curvature_rate_cmd = self._mach_e_controller.curvature_rate(self.apply_curvature_last, CS.out.vEgoRaw,
                                                                   lat_active, CS.out.steeringPressed)
