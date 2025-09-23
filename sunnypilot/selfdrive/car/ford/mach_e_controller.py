@@ -96,6 +96,40 @@ class MachECarController(FordCarController):
     self._mach_e_controller = _MachELateralController(CP)
     self._lat_active_prev = False
 
+  def _create_lat_ctl_msg(self, lat_active: bool, ramp_type: int, precision_type: int,
+                          path_angle: float, curvature: float, curvature_rate: float):
+    values = {
+      "LatCtlRng_L_Max": 0,
+      "HandsOffCnfm_B_Rq": 0,
+      "LatCtl_D_Rq": 1 if lat_active else 0,
+      "LatCtlRampType_D_Rq": ramp_type,
+      "LatCtlPrecision_D_Rq": precision_type,
+      "LatCtlPathOffst_L_Actl": 0.0,
+      "LatCtlPath_An_Actl": path_angle,
+      "LatCtlCurv_NoRate_Actl": curvature_rate,
+      "LatCtlCurv_No_Actl": curvature,
+    }
+    return self.packer.make_can_msg("LateralMotionControl", self.CAN.main, values)
+
+  def _create_lat_ctl2_msg(self, mode: int, ramp_type: int, precision_type: int,
+                           path_angle: float, curvature: float, curvature_rate: float, counter: int):
+    values = {
+      "LatCtl_D2_Rq": mode,
+      "LatCtlRampType_D_Rq": ramp_type,
+      "LatCtlPrecision_D_Rq": precision_type,
+      "LatCtlPathOffst_L_Actl": 0.0,
+      "LatCtlPath_An_Actl": path_angle,
+      "LatCtlCurv_No_Actl": curvature,
+      "LatCtlCrv_NoRate2_Actl": curvature_rate,
+      "HandsOffCnfm_B_Rq": 0,
+      "LatCtlPath_No_Cnt": counter,
+      "LatCtlPath_No_Cs": 0,
+    }
+
+    dat = self.packer.make_can_msg("LateralMotionControl2", 0, values)[1]
+    values["LatCtlPath_No_Cs"] = fordcan.calculate_lat_ctl2_checksum(mode, counter, dat)
+    return self.packer.make_can_msg("LateralMotionControl2", self.CAN.main, values)
+
   def update(self, CC, CC_SP, CS, now_nanos):  # pylint: disable=too-many-locals
     can_sends = []
 
@@ -155,12 +189,15 @@ class MachECarController(FordCarController):
 
       if self.CP.flags & FordFlags.CANFD:
         counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
-        can_sends.append(fordcan.create_lat_ctl2_msg(
-          self.packer, self.CAN, mode, ramp_type, precision_type,
-          0.0, -path_angle_cmd, -self.apply_curvature_last, -curvature_rate_cmd, counter
+        can_sends.append(self._create_lat_ctl2_msg(
+          mode, ramp_type, precision_type,
+          -path_angle_cmd, -self.apply_curvature_last, -curvature_rate_cmd, counter
         ))
       else:
-        can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, lat_active, 0., 0., -self.apply_curvature_last, 0.))
+        can_sends.append(self._create_lat_ctl_msg(
+          lat_active, ramp_type, precision_type,
+          -path_angle_cmd, -self.apply_curvature_last, -curvature_rate_cmd
+        ))
 
       self._lat_active_prev = lat_active
 
