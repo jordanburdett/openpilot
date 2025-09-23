@@ -1,4 +1,6 @@
 import math
+from collections import deque
+
 import numpy as np
 
 from common.filter_simple import FirstOrderFilter
@@ -23,22 +25,30 @@ class _MachELateralController:
     self.dt = DT_CTRL * CarControllerParams.STEER_STEP
 
     self.curvature_filter = FirstOrderFilter(0.0, 0.35, self.dt, initialized=False)
-    self.path_angle_filter = FirstOrderFilter(0.0, 0.3, self.dt, initialized=False)
     self.curvature_rate_filter = FirstOrderFilter(0.0, 0.25, self.dt, initialized=False)
 
     self.curvature_rate_max = 0.0008  # 1/m^2
-    self.path_angle_max = 0.12  # radians
-    self.path_angle_gain = 0.7
+    self.curvature_max = 0.02  # 1/m
 
     self.last_filtered_curvature = 0.0
     self.last_limited_curvature = 0.0
 
+    self.curvature_rate_delta_t = 0.3  # seconds
+    maxlen = max(1, int(round(self.curvature_rate_delta_t / max(self.dt, 1e-3))))
+    self.curvature_rate_deque = deque(maxlen=maxlen)
+    self.curvature_rate_speed_bp = [0.0, 14.5, 15.5]
+    self.curvature_rate_speed_v = [1.0, 1.0, 0.0]
+    self.curvature_rate_curvature_bp = [0.0, 0.008, 0.01]
+    self.curvature_rate_curvature_v = [0.0, 0.0, 1.0]
+    self.large_curve_factor_bp = [0.001, 0.02]
+    self.large_curve_factor_v = [1.0, 0.8]
+
   def _reset_filters(self):
     self.curvature_filter.initialized = False
     self.curvature_filter.x = 0.0
-    for filt in (self.path_angle_filter, self.curvature_rate_filter):
-      filt.initialized = False
-      filt.x = 0.0
+    self.curvature_rate_filter.initialized = False
+    self.curvature_rate_filter.x = 0.0
+    self.curvature_rate_deque.clear()
     self.last_filtered_curvature = 0.0
     self.last_limited_curvature = 0.0
 
@@ -54,37 +64,42 @@ class _MachELateralController:
     v_ref = max(v_ego_raw, 1.0)
 
     filtered_curvature = self.curvature_filter.update(desired_curvature)
-    curvature_delta = filtered_curvature - self.last_filtered_curvature
     self.last_filtered_curvature = filtered_curvature
 
-    desired_angle_deg = math.degrees(self.VM.get_steer_from_curvature(-filtered_curvature, v_ref, 0.0))
-    steering_delta = (steering_angle_deg - desired_angle_deg) * math.pi / 180.0
-
-    if steering_pressed:
-      self.path_angle_filter.initialized = False
-      self.path_angle_filter.x = 0.0
-      path_angle = 0.0
-    else:
-      path_angle_target = steering_delta * self.path_angle_gain
-      path_angle = self.path_angle_filter.update(path_angle_target)
-      path_angle = float(np.clip(path_angle, -self.path_angle_max, self.path_angle_max))
+    filtered_curvature = float(np.clip(filtered_curvature, -self.curvature_max, self.curvature_max))
 
     self.last_filtered_curvature = filtered_curvature
-    return filtered_curvature, path_angle
+    return filtered_curvature, 0.0
 
   def curvature_rate(self, limited_curvature: float, v_ego_raw: float, lat_active: bool, steering_pressed: bool) -> float:
     if not lat_active or v_ego_raw < 0.5 or steering_pressed:
       self.curvature_rate_filter.initialized = False
       self.curvature_rate_filter.x = 0.0
       self.last_limited_curvature = limited_curvature
+      self.curvature_rate_deque.clear()
       return 0.0
 
     v_ref = max(v_ego_raw, 1.0)
-    delta = limited_curvature - self.last_limited_curvature
-    self.last_limited_curvature = limited_curvature
+    self.curvature_rate_deque.append(limited_curvature)
 
-    rate_raw = delta / (self.dt * v_ref)
-    rate_filtered = self.curvature_rate_filter.update(rate_raw)
+    if len(self.curvature_rate_deque) > 1:
+      if len(self.curvature_rate_deque) == self.curvature_rate_deque.maxlen:
+        delta_t = self.curvature_rate_delta_t
+      else:
+        delta_t = (len(self.curvature_rate_deque) - 1) * self.dt
+      delta = self.curvature_rate_deque[-1] - self.curvature_rate_deque[0]
+      rate_raw = delta / max(delta_t, 1e-3) / v_ref
+    else:
+      rate_raw = 0.0
+
+    curvature_factor = float(np.interp(abs(limited_curvature), self.curvature_rate_curvature_bp, self.curvature_rate_curvature_v))
+    speed_factor = float(np.interp(v_ego_raw, self.curvature_rate_speed_bp, self.curvature_rate_speed_v))
+    large_curve_factor = float(np.interp(abs(limited_curvature), self.large_curve_factor_bp, self.large_curve_factor_v))
+
+    rate_shaped = rate_raw * curvature_factor * speed_factor * large_curve_factor
+    rate_filtered = self.curvature_rate_filter.update(rate_shaped)
+
+    self.last_limited_curvature = limited_curvature
     return float(np.clip(rate_filtered, -self.curvature_rate_max, self.curvature_rate_max))
 
 
@@ -186,6 +201,12 @@ class MachECarController(FordCarController):
         curvature_rate_cmd = 0.0
         path_angle_cmd = 0.0
       precision_type = 1
+
+      # Avoid conflicting commands: when curvature authority is tiny (e.g. low-speed straight) fall back to
+      # curvature-only control to keep the PSCM happy. Bluepilot achieves this via a richer path-angle pipeline.
+      if abs(self.apply_curvature_last) < 1e-4 or CS.out.vEgoRaw < 1.5:
+        path_angle_cmd = 0.0
+        curvature_rate_cmd = 0.0
 
       if self.CP.flags & FordFlags.CANFD:
         counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
