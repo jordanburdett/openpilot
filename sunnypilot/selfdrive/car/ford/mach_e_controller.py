@@ -42,6 +42,9 @@ class _MachELateralController:
     self.last_filtered_curvature = 0.0
     self.last_limited_curvature = 0.0
 
+  def reset(self):
+    self._reset_filters()
+
   def update(self, lat_active: bool, desired_curvature: float, steering_angle_deg: float,
              v_ego_raw: float, steering_pressed: bool) -> tuple[float, float]:
     if not lat_active or v_ego_raw < 0.5:
@@ -91,25 +94,7 @@ class MachECarController(FordCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     super().__init__(dbc_names, CP, CP_SP)
     self._mach_e_controller = _MachELateralController(CP)
-
-  def _create_lat_ctl2_msg(self, mode: int, ramp_type: int, precision_type: int,
-                           path_angle: float, curvature: float, curvature_rate: float, counter: int):
-    values = {
-      "LatCtl_D2_Rq": mode,
-      "LatCtlRampType_D_Rq": ramp_type,
-      "LatCtlPrecision_D_Rq": precision_type,
-      "LatCtlPathOffst_L_Actl": 0.0,
-      "LatCtlPath_An_Actl": path_angle,
-      "LatCtlCurv_No_Actl": curvature,
-      "LatCtlCrv_NoRate2_Actl": curvature_rate,
-      "HandsOffCnfm_B_Rq": 0,
-      "LatCtlPath_No_Cnt": counter,
-      "LatCtlPath_No_Cs": 0,
-    }
-
-    dat = self.packer.make_can_msg("LateralMotionControl2", 0, values)[1]
-    values["LatCtlPath_No_Cs"] = fordcan.calculate_lat_ctl2_checksum(mode, counter, dat)
-    return self.packer.make_can_msg("LateralMotionControl2", self.CAN.main, values)
+    self._lat_active_prev = False
 
   def update(self, CC, CC_SP, CS, now_nanos):  # pylint: disable=too-many-locals
     can_sends = []
@@ -120,6 +105,7 @@ class MachECarController(FordCarController):
     main_on = CS.out.cruiseState.available
     steer_alert = hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw)
     fcw_alert = hud_control.visualAlert == VisualAlert.fcw
+    lat_active = bool(CC.latActive)
 
     ### acc buttons ###
     if CC.cruiseControl.cancel:
@@ -145,28 +131,38 @@ class MachECarController(FordCarController):
 
       path_angle_cmd = 0.0
       apply_curvature, path_angle_cmd = self._mach_e_controller.update(
-        CC.latActive, apply_curvature, CS.out.steeringAngleDeg, CS.out.vEgoRaw, CS.out.steeringPressed
+        lat_active, apply_curvature, CS.out.steeringAngleDeg, CS.out.vEgoRaw, CS.out.steeringPressed
       )
 
       # apply rate limits, curvature error limit, and clip to signal range
       current_curvature = -CS.out.yawRate / max(CS.out.vEgoRaw, 0.1)
 
       self.apply_curvature_last = apply_ford_curvature_limits(apply_curvature, self.apply_curvature_last, current_curvature,
-                                                              CS.out.vEgoRaw, 0., CC.latActive, self.CP)
+                                                              CS.out.vEgoRaw, 0., lat_active, self.CP)
 
       curvature_rate_cmd = self._mach_e_controller.curvature_rate(self.apply_curvature_last, CS.out.vEgoRaw,
-                                                                  CC.latActive, CS.out.steeringPressed)
+                                                                  lat_active, CS.out.steeringPressed)
+
+      mode = 1 if lat_active else 0
+      ramp_type = 2 if lat_active else 0
+      if lat_active and (CS.out.steeringPressed or not self._lat_active_prev):
+        ramp_type = 3
+        self._mach_e_controller.reset()
+        self.apply_curvature_last = 0.0
+        curvature_rate_cmd = 0.0
+        path_angle_cmd = 0.0
+      precision_type = 1
 
       if self.CP.flags & FordFlags.CANFD:
-        mode = 1 if CC.latActive else 0
         counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
-        ramp_type = 2 if CC.latActive else 0
-        precision_type = 1
-        can_sends.append(self._create_lat_ctl2_msg(mode, ramp_type, precision_type,
-                                                   -path_angle_cmd, -self.apply_curvature_last,
-                                                   -curvature_rate_cmd, counter))
+        can_sends.append(fordcan.create_lat_ctl2_msg(
+          self.packer, self.CAN, mode, ramp_type, precision_type,
+          0.0, -path_angle_cmd, -self.apply_curvature_last, -curvature_rate_cmd, counter
+        ))
       else:
-        can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, CC.latActive, 0., 0., -self.apply_curvature_last, 0.))
+        can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, lat_active, 0., 0., -self.apply_curvature_last, 0.))
+
+      self._lat_active_prev = lat_active
 
     # send lka msg at 33Hz
     if (self.frame % CarControllerParams.LKA_STEP) == 0:
@@ -207,7 +203,7 @@ class MachECarController(FordCarController):
     ### ui ###
     send_ui = (self.main_on_last != main_on) or (self.lkas_enabled_last != CC.latActive) or (self.steer_alert_last != steer_alert)
     if (self.frame % CarControllerParams.LKAS_UI_STEP) == 0 or send_ui:
-      can_sends.append(fordcan.create_lkas_ui_msg(self.packer, self.CAN, main_on, CC.latActive, steer_alert, hud_control, CS.lkas_status_stock_values))
+      can_sends.append(fordcan.create_lkas_ui_msg(self.packer, self.CAN, main_on, lat_active, steer_alert, hud_control, CS.lkas_status_stock_values))
 
     if hud_control.leadDistanceBars != self.lead_distance_bars_last:
       send_ui = True
@@ -215,12 +211,12 @@ class MachECarController(FordCarController):
 
     if (self.frame % CarControllerParams.ACC_UI_STEP) == 0 or send_ui:
       show_distance_bars = self.frame - self.distance_bar_frame < 400
-      can_sends.append(fordcan.create_acc_ui_msg(self.packer, self.CAN, self.CP, main_on, CC.latActive,
+      can_sends.append(fordcan.create_acc_ui_msg(self.packer, self.CAN, self.CP, main_on, lat_active,
                                                  fcw_alert, CS.out.cruiseState.standstill, show_distance_bars,
                                                  hud_control, CS.acc_tja_status_stock_values))
 
     self.main_on_last = main_on
-    self.lkas_enabled_last = CC.latActive
+    self.lkas_enabled_last = lat_active
     self.steer_alert_last = steer_alert
     self.lead_distance_bars_last = hud_control.leadDistanceBars
 
