@@ -5,10 +5,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 source "$DIR/launch_env.sh"
 
 # BluePilot: set boot and logo images (non-interactive, safe to call repeatedly)
-# BluePilot DIAGNOSTIC (bp-7.0-rc1): boot_logo invocation temporarily disabled to A/B test
-# whether writing the splash into the system partition disrupts the UI's DRM/GPU init on
-# AGNOS 18.4. Re-enable (or replace with the verity/RO-aware guard) once causation is settled.
-# "$DIR/scripts/boot_logo.sh" --headless --update --force --quiet
+"$DIR/scripts/boot_logo.sh" --headless --update --force --quiet
 
 function agnos_init {
   # TODO: move this to agnos
