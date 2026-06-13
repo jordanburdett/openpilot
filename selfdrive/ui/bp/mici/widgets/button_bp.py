@@ -136,6 +136,28 @@ class BigMultiParamToggleBoolBP(BigMultiParamToggleBP):
     self._params.put_bool(self._param, bool(new_idx))
 
 
+class BigMultiParamToggleStrBP(BigMultiParamToggleBP):
+  """Like BigMultiParamToggleBP but for a STRING param: the option string is stored verbatim."""
+
+  def _load_value(self):
+    raw = self._params.get(self._param, return_default=True)
+    if raw in (None, b"", ""):
+      s = self._options[0]
+    elif isinstance(raw, bytes):
+      s = raw.decode("utf-8", errors="replace").strip("\x00").lower()
+    else:
+      s = str(raw).strip().lower()
+    if s not in self._options:
+      s = self._options[0]
+    self.set_value(s)
+
+  def _handle_mouse_release(self, mouse_pos):
+    # Advance option and update display, then store the selected option STRING verbatim.
+    # put() is non-blocking by default on this branch (put_nonblocking was removed upstream).
+    BigMultiToggle._handle_mouse_release(self, mouse_pos)
+    self._params.put(self._param, self.value)
+
+
 class BigParamControlBP(BigToggleBP, BigParamControl):
   def __init__(self, text: str, param: str, is_active_param: str = None, toggle_callback: Callable = None,
                tint: rl.Color = rl.WHITE):

@@ -10,6 +10,7 @@ from openpilot.common.params import Params
 
 # BluePilot: extension imports for lateral, longitudinal, and HUD control
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralCurvExt
+from opendbc.sunnypilot.car.ford.lateral_angle_ext import LateralAngleExt
 from opendbc.sunnypilot.car.ford.longitudinal_ext import LongitudinalExt
 from opendbc.sunnypilot.car.ford.hud_ext import HudExt
 from opendbc.sunnypilot.car.ford import fordcan_ext
@@ -65,15 +66,17 @@ def apply_creep_compensation(accel: float, v_ego: float) -> float:
   return float(accel)
 
 
-# BluePilot: CarController inherits from LateralCurvExt, LongitudinalExt, HudExt, and ICBM
-# for full 4-signal lateral control, follow-aware longitudinal, and enhanced HUD messaging.
+# BluePilot: CarController inherits from LateralCurvExt, LateralAngleExt, LongitudinalExt, HudExt,
+# and ICBM for 4-signal lateral control (curvature- or angle-primary), follow-aware longitudinal,
+# and enhanced HUD messaging.
 # Init order: CarControllerBase first (sets self.CP, self.frame), then ext classes.
-class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
+class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, LongitudinalExt, HudExt,
                     IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     # BluePilot: initialize extension classes
     LateralCurvExt.__init__(self, CP, CP_SP)
+    LateralAngleExt.__init__(self, CP, CP_SP)
     LongitudinalExt.__init__(self, CP, CP_SP)
     HudExt.__init__(self, CP, CP_SP)
     # ICBM: base class sets state used at runtime, init for robustness
@@ -100,6 +103,7 @@ class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
 
     # BluePilot: read runtime params from UI
     LateralCurvExt.update_lateral_params(self, self.params)
+    LateralAngleExt.update_angle_params(self, self.params)
     self.disable_BP_lat_UI = self.params.get_bool("disable_BP_lat_UI")
     LongitudinalExt.update_long_params(self, self.params)
     HudExt.update_hud_params(self, self.params, self.CP)
@@ -156,10 +160,17 @@ class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
         else:
           can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, CC.latActive, 0., 0., -self.apply_curvature_last, 0.))
       else:
-        # BluePilot: do not run apply_ford_curvature_limits here or overwrite apply_curvature_last before
-        # LateralCurvExt.update. Panda rate-checks desired_curvature vs the last TX on the bus; that must match
+        # BluePilot: select the BP lateral strategy by primary control variable.
+        #   "angle"     -> LateralAngleExt: κ → path_angle (c1), apply_curvature held at 0.
+        #   "curvature" -> LateralCurvExt: full 4-signal curvature-primary (default).
+        # Both return a LateralResult packed identically below.
+        # Do not run apply_ford_curvature_limits here or overwrite apply_curvature_last before the
+        # strategy runs. Panda rate-checks desired_curvature vs the last TX on the bus; that must match
         # the prior frame's lat.apply_curvature only (not an intermediate stock-limited value).
-        lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
+        if self.primary_lateral_control == "angle":
+          lat = LateralAngleExt.update_angle_strategy(self, CC, CS, actuators, self.CP)
+        else:
+          lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
         self.apply_curvature_last = lat.apply_curvature
         self.lateralUncertainty = lat.lateralUncertainty
 

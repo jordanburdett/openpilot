@@ -100,11 +100,16 @@ class LateralCurvExt:
 
   def __init__(self, CP, CP_SP):
     # SubMaster for model data, live parameters, and selfdrive state
-    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState'])
+    # liveDelay is consumed by LateralAngleExt (variable lookup time); harmless for curvature mode.
+    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState', 'liveDelay'])
     self.VM = VehicleModel(CP)
     self.model = None
     self.lp = None
     self.ss = None
+
+    # Primary lateral control variable: "curvature" (default) or "angle" (LateralAngleExt).
+    # Read each frame in update_lateral_params; consumed by CarController's lateral dispatch.
+    self.primary_lateral_control = "curvature"
 
     # Toggles (updated from Params each frame)
     self.enable_human_turn_detection = True
@@ -205,6 +210,17 @@ class LateralCurvExt:
     self.enable_lanefull_mode = params.get_bool("enable_lane_full_mode")
     self.custom_profile = int(params.get("custom_profile", return_default=True))
     self.LC_PID_gain_UI = float(params.get("LC_PID_gain_UI", return_default=True))
+
+    # Primary lateral control mode ("curvature" | "angle"); consumed by CarController dispatch.
+    raw_mode = params.get("FordPrefPrimaryLateralControl", return_default=True)
+    if isinstance(raw_mode, bytes):
+      raw_mode = raw_mode.decode("utf-8", errors="replace").strip("\x00")
+    self.primary_lateral_control = raw_mode.strip().lower() if raw_mode else "curvature"
+
+  def _ensure_lateral_curv_initialized(self, CP):
+    # Compatibility shim for LateralAngleExt, which calls this as a lazy-init guard. In this
+    # branch LateralCurvExt state is initialized eagerly in __init__, so nothing to do here.
+    pass
 
   def update_sm(self):
     """Update SubMaster and vehicle model. Called each frame before lateral/long update."""

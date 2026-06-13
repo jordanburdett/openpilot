@@ -1947,6 +1947,54 @@
               "description": "Disable BluePilot 4-signal Ford lateral control."
             },
             {
+              "key": "FordPrefPrimaryLateralControl",
+              "widget": "multiple_button",
+              "title": "Primary Control Variable",
+              "description": "Curvature uses the existing 4-signal strategy. Angle uses path_angle as the primary actuator (in development).",
+              "options": [
+                {
+                  "value": "curvature",
+                  "label": "Curvature"
+                },
+                {
+                  "value": "angle",
+                  "label": "Angle"
+                }
+              ]
+            },
+            {
+              "key": "FordAngleLowSpeedFactor",
+              "widget": "option",
+              "title": "Low Speed Adjustment Factor",
+              "description": "Scales the low-speed steering response in angle mode (0.5-1.5). Default 1.0.",
+              "min": 0.5,
+              "max": 1.5,
+              "step": 0.01,
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "FordPrefPrimaryLateralControl",
+                  "equals": "angle"
+                }
+              ]
+            },
+            {
+              "key": "FordAngleHighSpeedFactor",
+              "widget": "option",
+              "title": "High Speed Adjustment Factor",
+              "description": "Scales the high-speed steering response in angle mode (0.5-1.5). Default 1.0.",
+              "min": 0.5,
+              "max": 1.5,
+              "step": 0.01,
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "FordPrefPrimaryLateralControl",
+                  "equals": "angle"
+                }
+              ]
+            },
+            {
               "key": "enable_human_turn_detection",
               "widget": "toggle",
               "title": "Enable Human Turn Detection",

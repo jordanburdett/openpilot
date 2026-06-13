@@ -170,6 +170,36 @@
       "enabled": true
     },
     {
+      "name": "FordPrefPrimaryLateralControl",
+      "default": "curvature",
+      "type": "string",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordAngleLowSpeedFactor",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 1.5,
+      "type": "float",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "ccProp": "FordAngleLowSpeedFactor",
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordAngleHighSpeedFactor",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 1.5,
+      "type": "float",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "ccProp": "FordAngleHighSpeedFactor",
+      "create_default": true,
+      "enabled": true
+    },
+    {
       "name": "FordLatTuningPCBlendRatio_high_C",
       "default": 0.4,
       "min": 0.0,

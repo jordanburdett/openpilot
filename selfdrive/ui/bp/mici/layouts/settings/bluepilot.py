@@ -2,7 +2,7 @@ import pyray as rl
 from collections.abc import Callable
 
 from openpilot.system.ui.widgets.scroller import Scroller
-from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import BigButtonBP, BigParamControlBP, BigMultiToggleBP, BigMultiParamToggleBP, BigMultiParamToggleBoolBP
+from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import BigButtonBP, BigParamControlBP, BigMultiToggleBP, BigMultiParamToggleBP, BigMultiParamToggleBoolBP, BigMultiParamToggleStrBP
 from openpilot.selfdrive.ui.bp.mici.widgets.floatbutton import BigParamFloatControl, BigParamIntControl
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets.nav_widget import NavWidget
@@ -66,6 +66,25 @@ class BluePilotLayoutMici(NavWidget):
     self.animate_steering_wheel = BigParamControlBP("animate steering wheel", "BPAnimateSteeringWheel")
     self.hide_fade = BigParamControlBP("hide onroad fade", "mici_hide_onroad_fade")
     self.hide_border = BigParamControlBP("hide screen border", "mici_hide_onroad_border")
+    self.primary_lateral_control = BigMultiParamToggleStrBP(
+      "primary control variable",
+      "FordPrefPrimaryLateralControl",
+      ["curvature", "angle"],
+    )
+    self.low_speed_curv_factor = BigParamFloatControl(
+      "low speed adjustment factor",
+      "FordAngleLowSpeedFactor",
+      min=0.5,
+      max=1.5,
+      step=0.01,
+    )
+    self.high_speed_curv_factor = BigParamFloatControl(
+      "high speed adjustment factor",
+      "FordAngleHighSpeedFactor",
+      min=0.5,
+      max=1.5,
+      step=0.01,
+    )
     self.disable_BP_lat = BigParamControlBP("disable BP lateral control", "disable_BP_lat_UI")
     self.disable_BP_long = BigParamControlBP("bypass BP longitudinal control", "disable_BP_long_UI")
     self.disable_dowhill_comp = BigParamControlBP("disable downhill compensation", "disable_downhill_comp_UI")
@@ -113,6 +132,9 @@ class BluePilotLayoutMici(NavWidget):
       self.hide_fade,
       self.hide_border,
       self.vbatt_pause_charging,
+      self.primary_lateral_control,
+      self.low_speed_curv_factor,
+      self.high_speed_curv_factor,
       self.disable_BP_lat,
       self.disable_BP_long,
       self.disable_dowhill_comp,
@@ -204,6 +226,7 @@ class BluePilotLayoutMici(NavWidget):
     super()._update_state()
     self.show_lead_vehicle._load_value()
     self.hybrid_power_flow_style._load_value()
+    self.primary_lateral_control._load_value()
     # Refresh dependent control enabled state (e.g. after toggling enable_lane_positioning)
     self._update_buttons()
 

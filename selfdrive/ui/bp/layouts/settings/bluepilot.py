@@ -362,6 +362,44 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
+    # Primary lateral control variable: curvature (existing 4-signal) vs angle (path_angle-primary)
+    plat_raw = self._safe_get(self._params, "FordPrefPrimaryLateralControl") or b"curvature"
+    plat_str = (plat_raw.decode("utf-8", errors="replace").strip("\x00").lower()
+                if isinstance(plat_raw, bytes) else str(plat_raw).strip().lower())
+    primary_lat_idx = 1 if plat_str == "angle" else 0
+    try:
+      if plat_str not in ("curvature", "angle"):
+        self._params.put("FordPrefPrimaryLateralControl", "curvature")
+    except UnknownKeyName:
+      pass
+    self._primary_lateral_control_btn = multiple_button_item(
+      lambda: tr("Primary Control Variable"),
+      lambda: tr("Curvature matches the existing strategy. Angle uses path_angle as the main actuator (in development)."),
+      buttons=[lambda: tr("Curvature"), lambda: tr("Angle")],
+      button_width=225,
+      callback=self._set_primary_lateral_control,
+      selected_index=primary_lat_idx,
+      icon="chffr_wheel.png"
+    )
+    self._low_speed_curv_factor = float_control_item(
+      lambda: tr("Low Speed Adjustment Factor"),
+      lambda: tr("Scales the low-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
+      param="FordAngleLowSpeedFactor",
+      min_value=0.5,
+      max_value=1.5,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
+    self._high_speed_curv_factor = float_control_item(
+      lambda: tr("High Speed Adjustment Factor"),
+      lambda: tr("Scales the high-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
+      param="FordAngleHighSpeedFactor",
+      min_value=0.5,
+      max_value=1.5,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
+
     # Disable BP lateral control toggle
     self._disable_BP_lat = toggle_item(
       lambda: tr("Disable BP Lateral Control"),
@@ -433,6 +471,9 @@ class BluePilotLayout(Widget):
       self._disable_BP_long,
       self._disable_dowhill_comp,
       SectionHeader(tr("Lateral Tuning")),
+      self._primary_lateral_control_btn,
+      self._low_speed_curv_factor,
+      self._high_speed_curv_factor,
       self._disable_BP_lat,
       self._enable_human_turn_detection,
       self._disable_lane_change_under_speed,
@@ -496,6 +537,10 @@ class BluePilotLayout(Widget):
                  if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
     style_idx = 1 if style_str == "arched" else 0
     self._hybrid_gauge_style_btn.action_item.set_selected_button(style_idx)
+    raw_plat = self._safe_get(ui_state.params, "FordPrefPrimaryLateralControl") or b"curvature"
+    plat = (raw_plat.decode("utf-8", errors="replace").strip("\x00").lower()
+            if isinstance(raw_plat, bytes) else str(raw_plat).strip().lower())
+    self._primary_lateral_control_btn.action_item.set_selected_button(1 if plat == "angle" else 0)
     # Use just_toggled for params we just wrote to avoid update_params refresh race
     lane_pos = fresh.get("enable_lane_positioning") if "enable_lane_positioning" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning")
     custom_prof = fresh.get("custom_profile") if "custom_profile" in fresh else self._safe_get_bool(ui_state.params, "custom_profile")
@@ -643,6 +688,13 @@ class BluePilotLayout(Widget):
   def _set_hybrid_gauge_style(self, button_index: int):
     """Handle hybrid gauge style: 0 = Flat, 1 = Arched."""
     self._params.put("FordPrefHybridGaugeStyle", "arched" if button_index == 1 else "flat")
+
+  def _set_primary_lateral_control(self, button_index: int):
+    """Handle primary lateral control variable: 0 = curvature, 1 = angle."""
+    try:
+      self._params.put("FordPrefPrimaryLateralControl", "angle" if button_index == 1 else "curvature")
+    except UnknownKeyName:
+      pass
 
   def _render(self, rect):
     # Process WiFi manager callbacks
