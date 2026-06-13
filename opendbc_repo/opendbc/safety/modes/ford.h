@@ -129,13 +129,18 @@ static const AngleSteeringLimits FORD_PATH_ANGLE_LIMITS = {
   // 0.0005
   .angle_deg_to_can = 2000,        // 1 / (2e-5) rad to can
   .max_angle_error = 4,           // 0.002 * FORD_STEERING_LIMITS.angle_deg_to_can
+  // Mirror lateral_angle_ext.py _soft_roc: interp(v_ego, [9,10,15,25], [0.011,0.011,0.0085,0.0018])
+  // rad/frame, scaled x1.02 so panda is 2% LOOSER than the Python control and never blocks LMC2.
+  // lookup_t is fixed at 3 points; Python's 9 & 10 m/s nodes are both 0.011 (flat top), so {10,15,25}
+  // reproduces the curve exactly and speeds <10 clamp to the first point. The +1 CAN unit and the
+  // speed-1 fudge in path_angle_cmd_checks add extra headroom on top of the 2%.
   .angle_rate_up_lookup = {
-    .x = {5., 15., 25.},
-    .y = {0.003, 0.0015, 0.002}
+    .x = {10., 15., 25.},
+    .y = {0.01122, 0.00867, 0.001836}
   },
   .angle_rate_down_lookup = {
-    .x = {5., 15., 25.},
-    .y = {0.003, 0.0015, 0.002}
+    .x = {10., 15., 25.},
+    .y = {0.01122, 0.00867, 0.001836}
   },
   .angle_error_min_speed = 9.9,   // m/s
   .frequency = 100U,              // Hz
