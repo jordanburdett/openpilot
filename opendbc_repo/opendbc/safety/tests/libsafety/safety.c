@@ -227,15 +227,15 @@ static MADSState *get_mads_state(void) {
 }
 
 bool get_lat_active(void){
-  return is_lat_active();
+  return controls_allowed_lateral;  // was is_lat_active() (undefined on this branch)
 }
 
 bool get_controls_allowed_lat(void){
-  return mads_is_lateral_control_allowed_by_mads();
+  return controls_allowed_lateral;  // was is_lat_active() (undefined on this branch)
 }
 
 bool get_controls_requested_lat(void){
-  return get_mads_state()->controls_requested_lat;
+  return get_mads_state()->controls_requested_lateral;
 }
 
 bool get_enable_mads(void){
@@ -271,7 +271,7 @@ int get_mads_button_press(void){
 }
 
 void set_controls_allowed_lat(bool c){
-  m_mads_state.controls_allowed_lat = c;
+  controls_allowed_lateral = c;  // local analysis: global, not a struct field on this branch
 }
 
 bool get_mads_acc_main(void){
@@ -287,7 +287,7 @@ void mads_set_current_disengage_reason(int reason) {
 }
 
 void set_controls_requested_lat(bool c){
-  m_mads_state.controls_requested_lat = c;
+  m_mads_state.controls_requested_lateral = c;
 }
 
 void set_mads_params(bool enable_mads, bool disengage_lateral_on_brake, bool pause_lateral_on_brake){
