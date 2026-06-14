@@ -314,8 +314,11 @@ class Tici(HardwareBase):
       gov = 'ondemand' if powersave_enabled else 'performance'
       sudo_write(gov, f'/sys/devices/system/cpu/cpufreq/policy{n}/scaling_governor')
       if not powersave_enabled:
-        # cap max core freq to 1689 Mhz
-        sudo_write('1689600', f'/sys/devices/system/cpu/cpufreq/policy{n}/scaling_max_freq')
+        # BP TEMP DIAGNOSTIC (revert before release): freq cap removed to capture an uncapped
+        # thermal baseline for the post-sync >90C investigation. Writes the true hardware max
+        # instead of capping to 1689.6 MHz. Revert with: git revert <this commit>.
+        sudo_write(open(f'/sys/devices/system/cpu/cpufreq/policy{n}/cpuinfo_max_freq').read().strip(),
+                   f'/sys/devices/system/cpu/cpufreq/policy{n}/scaling_max_freq')
 
     # *** IRQ config ***
 
