@@ -155,10 +155,10 @@ class BigMultiParamToggleBoolBP(BigMultiParamToggleBP):
 
   def _handle_mouse_release(self, mouse_pos):
     # Advance option and update display (BigMultiToggle), but do NOT call BigMultiParamToggle's
-    # put_nonblocking(self._param, new_idx) — param is BOOL, so we must use put_bool_nonblocking.
+    # put(self._param, new_idx) — param is BOOL, so we must use put_bool.
     BigMultiToggle._handle_mouse_release(self, mouse_pos)
     new_idx = self._options.index(self.value)
-    self._params.put_bool_nonblocking(self._param, bool(new_idx))
+    self._params.put_bool(self._param, bool(new_idx), block=False)
 
 
 class BigMultiParamToggleStrBP(BigMultiParamToggleBP):
@@ -178,7 +178,7 @@ class BigMultiParamToggleStrBP(BigMultiParamToggleBP):
 
   def _handle_mouse_release(self, mouse_pos):
     BigMultiToggle._handle_mouse_release(self, mouse_pos)
-    self._params.put_nonblocking(self._param, self.value)
+    self._params.put(self._param, self.value, block=False)
 
 
 class BigParamControlBP(BigToggleBP, BigParamControl):

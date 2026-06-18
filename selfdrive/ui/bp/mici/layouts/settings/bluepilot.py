@@ -11,8 +11,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
-from openpilot.system.ui.widgets import DialogResult
-from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.bp.mici.widgets.preferred_network_select import PreferredNetworkSelectMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.vehicle_mici import VehicleLayoutMici
@@ -168,20 +167,20 @@ class BluePilotLayoutMici(NavScroller):
   def _clear_model_cache(self):
     """Clear model runner cache params and reboot."""
 
-    def handle_confirm(result: DialogResult):
-      if result == DialogResult.CONFIRM:
-        for key in ("ModelRunnerTypeCache", "ModelManager_ActiveBundle"):
-          try:
-            self._params.remove(key)
-          except Exception:
-            pass
-        self._params.put_bool_nonblocking("DoReboot", True)
-        cloudlog.info("BluePilot: Cleared model cache, triggered reboot")
+    def do_clear():
+      for key in ("ModelRunnerTypeCache", "ModelManager_ActiveBundle"):
+        try:
+          self._params.remove(key)
+        except Exception:
+          pass
+      self._params.put_bool("DoReboot", True, block=False)
+      cloudlog.info("BluePilot: Cleared model cache, triggered reboot")
 
-    dialog = ConfirmDialog(
-      tr("Clear crashed model runner cache and reboot? This fixes 'Communication Issue' when modeld fails to start."),
-      tr("Clear & Reboot"),
-      callback=handle_confirm,
+    icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+    dialog = BigConfirmationDialog(
+      tr("clear model runner cache and reboot?"),
+      icon,
+      confirm_callback=do_clear,
     )
     gui_app.push_widget(dialog)
 

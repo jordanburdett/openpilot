@@ -10,8 +10,7 @@ from openpilot.system.ui import text as text_lib
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
-from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
-from openpilot.system.ui.widgets import DialogResult
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.system.ui.widgets.scroller import NavScroller
 
 from openpilot.selfdrive.ui.bp.mici.widgets.web_server_qr_dialog import WebServerQRDialog
@@ -94,7 +93,7 @@ class SystemLayoutMici(NavScroller):
 
   def _toggle_bool(self, key: str):
     current = self._params.get_bool(key)
-    self._params.put_bool_nonblocking(key, not current)
+    self._params.put_bool(key, not current, block=False)
     self._update_buttons()
 
   def _update_buttons(self):
@@ -121,24 +120,24 @@ class SystemLayoutMici(NavScroller):
       cloudlog.warning(f"Failed to show QR dialog: {e}")
 
   def _clear_model_cache(self):
-    def handle_confirm(result: DialogResult):
-      if result == DialogResult.CONFIRM:
-        try:
-          self._params.remove("ModelRunnerTypeCache")
-        except Exception:
-          pass
-        try:
-          self._params.remove("ModelManager_ActiveBundle")
-        except Exception:
-          pass
-        self._params.put_bool_nonblocking("DoReboot", True)
-        from openpilot.common.swaglog import cloudlog
-        cloudlog.info("BluePilot: Cleared model cache, triggered reboot")
+    def do_clear():
+      try:
+        self._params.remove("ModelRunnerTypeCache")
+      except Exception:
+        pass
+      try:
+        self._params.remove("ModelManager_ActiveBundle")
+      except Exception:
+        pass
+      self._params.put_bool("DoReboot", True, block=False)
+      from openpilot.common.swaglog import cloudlog
+      cloudlog.info("BluePilot: Cleared model cache, triggered reboot")
 
-    dialog = ConfirmDialog(
-      tr("Clear crashed model runner cache and reboot? This fixes 'Communication Issue' when modeld fails to start."),
-      tr("Clear & Reboot"),
-      callback=handle_confirm,
+    icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+    dialog = BigConfirmationDialog(
+      tr("Clear crashed model runner cache and reboot?"),
+      icon,
+      confirm_callback=do_clear,
     )
     gui_app.push_widget(dialog)
 
