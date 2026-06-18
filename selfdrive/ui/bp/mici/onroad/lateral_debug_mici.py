@@ -1,0 +1,92 @@
+"""
+BluePilot MICI lateral debug panel.
+
+Shows a live steering angle trend: carControl.actuators.steeringAngleDeg (desired)
+vs carState.steeringAngleDeg (actual). Reuses the TICI TimeSeriesGraph infrastructure.
+
+Navigation: pushed via gui_app.push_widget(). Tap anywhere on screen to pop back.
+The main layout's standstill/timeout transitions also pop this widget automatically.
+"""
+import time
+import pyray as rl
+from openpilot.system.ui.widgets import Widget
+from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.selfdrive.ui.ui_state import device, ui_state
+from bluepilot.ui.widgets.debug.debug_colors import DebugColors
+from bluepilot.ui.widgets.debug.debug_graph import TimeSeriesGraph, GraphConfig, GraphSeries
+
+# Hold the interactive timeout at 5 minutes while the debug screen is visible so
+# the onroad-inactivity timeout doesn't dismiss the screen mid-observation.
+_DEBUG_TIMEOUT_S = 300
+
+# Match TICI debug panel update rate
+_DATA_PUSH_INTERVAL = 0.05  # 20 Hz
+_MAX_DATA_POINTS = 100
+
+
+class LateralDebugMici(Widget):
+  """
+  Full-screen lateral steering angle trend for MICI.
+  Two series: Desired (carControl.actuators.steeringAngleDeg) and
+  Actual (carState.steeringAngleDeg). Tap anywhere to dismiss.
+  """
+
+  def __init__(self, back_callback):
+    super().__init__()
+    # Any tap on this widget pops back to the menu
+    self.set_click_callback(back_callback)
+
+    self._graph = TimeSeriesGraph(
+      config=GraphConfig(
+        title="Steering Angle",
+        y_unit="°",
+        max_data_points=_MAX_DATA_POINTS,
+        min_scale=5.0,
+      ),
+      series=[
+        GraphSeries("Desired", DebugColors.DESIRED_GREEN, fill_alpha=25),
+        GraphSeries("Actual",  DebugColors.ACTUAL_YELLOW,  fill_alpha=25),
+      ]
+    )
+    self._last_push_time = 0.0
+
+  def show_event(self):
+    super().show_event()
+    device.set_override_interactive_timeout(_DEBUG_TIMEOUT_S)
+
+  def hide_event(self):
+    super().hide_event()
+    device.set_override_interactive_timeout(None)
+
+  def _update_state(self):
+    sm = ui_state.sm
+    if sm is None:
+      return
+    now = time.monotonic()
+    if now - self._last_push_time < _DATA_PUSH_INTERVAL:
+      return
+    desired = 0.0
+    actual = 0.0
+    try:
+      if sm.valid.get('carControl', False):
+        desired = sm['carControl'].actuators.steeringAngleDeg
+      if sm.valid.get('carState', False):
+        actual = sm['carState'].steeringAngleDeg
+      self._graph.push_data([desired, actual])
+      self._last_push_time = now
+    except (KeyError, AttributeError, ValueError):
+      pass
+
+  def _render(self, rect: rl.Rectangle):
+    # Solid background so camera feed doesn't bleed through
+    rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
+                      rl.Color(15, 15, 20, 255))
+
+    # Graph fills the whole screen — title, axes, legend are all drawn inside
+    self._graph.render(rect)
+
+    # Small dismiss hint at bottom-right, outside graph legend area
+    font = gui_app.font(FontWeight.NORMAL)
+    rl.draw_text_ex(font, "tap to close",
+                    rl.Vector2(rect.x + rect.width - 200, rect.y + rect.height - 40),
+                    30, 0, rl.Color(110, 110, 110, 180))

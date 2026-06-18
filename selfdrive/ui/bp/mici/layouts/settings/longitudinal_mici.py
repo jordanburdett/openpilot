@@ -1,31 +1,32 @@
-"""BluePilot MICI: Vehicle settings panel — cluster UI, 12V battery limit."""
+"""BluePilot MICI: Longitudinal tuning panel — BP long bypass, downhill comp, Ford radar."""
 
 from collections.abc import Callable
 
-from openpilot.common.params import Params
 from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import BigParamControlBP
-from openpilot.selfdrive.ui.bp.mici.widgets.floatbutton import BigParamFloatControl
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.widgets.scroller import NavScroller
 
 
-class VehicleLayoutMici(NavScroller):
+class LongitudinalLayoutMici(NavScroller):
   def __init__(self, back_callback: Callable[[], None] | None = None):
     super().__init__()
     if back_callback is not None:
       self.set_back_callback(back_callback)
-    self._params = Params()
 
-    self.show_hands_free_ui = BigParamControlBP("Show BlueCruise UI on Cluster", "send_hands_free_cluster_msg")
-    self.vbatt_pause_charging = BigParamFloatControl("12V Battery Limit", "vbatt_pause_charging", min=11.0, max=14.0, step=0.1)
+    self.disable_BP_long = BigParamControlBP("Bypass BP Longitudinal Control", "disable_BP_long_UI")
+    self.disable_downhill_comp = BigParamControlBP("Disable Downhill Compensation", "disable_downhill_comp_UI")
+    self.disable_ford_radar = BigParamControlBP("Disable Ford Radar (Vision-Only Leads)", "disable_ford_radar_UI")
 
     self._scroller.add_widgets([
-      self.show_hands_free_ui,
-      self.vbatt_pause_charging,
+      self.disable_BP_long,
+      self.disable_downhill_comp,
+      self.disable_ford_radar,
     ])
 
     self._refresh_toggles = (
-      ("send_hands_free_cluster_msg", self.show_hands_free_ui),
+      ("disable_BP_long_UI", self.disable_BP_long),
+      ("disable_downhill_comp_UI", self.disable_downhill_comp),
+      ("disable_ford_radar_UI", self.disable_ford_radar),
     )
 
     ui_state.add_offroad_transition_callback(self._update_toggles)

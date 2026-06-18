@@ -61,7 +61,7 @@ class FloatControlAction(ItemAction):
     """Set parameter value."""
     # Clamp to min/max
     value = max(self.min_value, min(self.max_value, value))
-    self.params.put(self.param, value)
+    self.params.put_nonblocking(self.param, value)
     if self.callback:
       self.callback(value)
   
@@ -75,13 +75,24 @@ class FloatControlAction(ItemAction):
     current = self._get_value()
     self._set_value(current - self.step)
   
+  def _decimals(self) -> int:
+    """Infer display precision from step size so small steps are shown correctly."""
+    if self.step < 0.001:
+      return 4
+    if self.step < 0.01:
+      return 3
+    if self.step < 0.1:
+      return 2
+    return 1
+
   def _render(self, rect: rl.Rectangle) -> bool:
     current_value = self._get_value()
     # Format value based on suffix
     if self.suffix == "V":
       value_text = f"{current_value:.1f}{self.suffix}"
     else:
-      value_text = f"{current_value:.2f}{self.suffix}"
+      decimals = self._decimals()
+      value_text = f"{current_value:.{decimals}f}{self.suffix}"
     
     # Calculate layout - reduce spacing to 1/3 of original
     # Original was BUTTON_SIZE (80) + BUTTON_SPACING (20) = 100 per side
@@ -138,7 +149,8 @@ class FloatControlAction(ItemAction):
     if self.suffix == "V":
       value_text = f"{current_value:.1f}{self.suffix}"
     else:
-      value_text = f"{current_value:.2f}{self.suffix}"
+      decimals = self._decimals()
+      value_text = f"{current_value:.{decimals}f}{self.suffix}"
     
     button_y = self._rect.y + (self._rect.height - BUTTON_SIZE) / 2
     

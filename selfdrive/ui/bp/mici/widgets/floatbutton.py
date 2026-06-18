@@ -4,12 +4,67 @@ from collections.abc import Callable
 from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import BigButtonBP
 from openpilot.selfdrive.ui.bp.mici.widgets.big_input_dialog_bp import BigInputDialogBP
 from openpilot.common.params import Params
-from openpilot.system.ui.lib.application import gui_app, MousePos
+from openpilot.system.ui.lib.application import gui_app, MousePos, FontWeight
+from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 CONTENT_MARGIN = 20
 LINE_L = 40
 LINE_W = 8
 LABEL_HORIZONTAL_PADDING = 40
+
+# Adjust-mode overlay (enlarged centered value display while user is tweaking)
+ADJUST_DURATION_S = 5.0
+ADJUST_FADE_IN_S = 0.15
+ADJUST_FADE_OUT_S = 0.3
+ADJUST_FONT_BASE = 30
+ADJUST_FONT_TARGET = 90  # 3x base
+SCROLL_RESET_PX = 8
+
+
+def _draw_adjust_overlay(widget, last_adjust_time, last_rect_x):
+  """Render the enlarged centered value when the widget is being adjusted.
+
+  Returns updated (last_adjust_time, last_rect_x). Reset triggers:
+    - 5s elapsed since last change
+    - widget moved horizontally (scroller drag)
+  """
+  if last_adjust_time is not None and last_rect_x is not None:
+    if abs(widget._rect.x - last_rect_x) > SCROLL_RESET_PX:
+      last_adjust_time = None
+  last_rect_x = widget._rect.x
+
+  if last_adjust_time is None:
+    return last_adjust_time, last_rect_x
+
+  elapsed = rl.get_time() - last_adjust_time
+  if elapsed < 0 or elapsed >= ADJUST_DURATION_S:
+    return None, last_rect_x
+
+  fade_in = min(elapsed / ADJUST_FADE_IN_S, 1.0)
+  fade_out = min((ADJUST_DURATION_S - elapsed) / ADJUST_FADE_OUT_S, 1.0)
+  factor = max(0.0, min(fade_in, fade_out, 1.0))
+
+  value_str = widget._sub_label.text
+  if factor <= 0 or not value_str:
+    return last_adjust_time, last_rect_x
+
+  font_size = int(ADJUST_FONT_BASE + (ADJUST_FONT_TARGET - ADJUST_FONT_BASE) * factor)
+  font = gui_app.font(FontWeight.BOLD)
+  text_size = measure_text_cached(font, value_str, font_size)
+
+  pad_x, pad_y = 32, 16
+  bg_w = text_size.x + pad_x * 2
+  bg_h = text_size.y + pad_y * 2
+  bg_x = widget._rect.x + (widget._rect.width - bg_w) / 2
+  bg_y = widget._rect.y + (widget._rect.height - bg_h) / 2
+
+  bg_rect = rl.Rectangle(bg_x, bg_y, bg_w, bg_h)
+  rl.draw_rectangle_rounded(bg_rect, 0.3, 12, rl.Color(15, 15, 15, int(235 * factor)))
+
+  rl.draw_text_ex(font, value_str, rl.Vector2(bg_x + pad_x, bg_y + pad_y), font_size, 0,
+                  rl.Color(255, 255, 255, int(255 * factor)))
+
+  return last_adjust_time, last_rect_x
 
 class BigParamFloatControl(BigButtonBP):
   def __init__(self, text: str, param: str, is_active_param: str = None, is_active: Callable[[], bool] = None,
@@ -22,7 +77,7 @@ class BigParamFloatControl(BigButtonBP):
     self.max = max
     self.step = step
 
-    self._sub_label.set_font_size(22)
+    self._sub_label.set_font_size(30)
 
     self.margin = self._rect.width * 0.1
     self.rect_size = LINE_L + 2 * CONTENT_MARGIN
@@ -31,6 +86,9 @@ class BigParamFloatControl(BigButtonBP):
     self.params = Params()
     self.set_click_callback(self._on_click)
     self.update_label()
+
+    self._last_adjust_time: float | None = None
+    self._last_rect_x: float | None = None
 
   def _on_click(self):
     if self.min is not None or self.max is not None:
@@ -57,6 +115,7 @@ class BigParamFloatControl(BigButtonBP):
       #revert to default
       self.params.remove(self.param)
       self.update_label()
+    self._last_adjust_time = rl.get_time()
 
   def get_param(self) -> float:
     try:
@@ -70,7 +129,7 @@ class BigParamFloatControl(BigButtonBP):
     elif self.max is not None and value > self.max:
       value = self.max
 
-    self.params.put(self.param, value)
+    self.params.put_nonblocking(self.param, value)
     self.update_label(value)
 
   def update_label(self, value: float = None):
@@ -111,11 +170,16 @@ class BigParamFloatControl(BigButtonBP):
     m = self.right - LINE_L/2
     rl.draw_line_ex((m,self.top-LINE_L/2), (m, self.top+LINE_L/2), LINE_W, rl.WHITE)
 
+    self._last_adjust_time, self._last_rect_x = _draw_adjust_overlay(
+      self, self._last_adjust_time, self._last_rect_x)
+
   def minus_clicked(self):
     self.set_param(self.get_param() - self.step)
+    self._last_adjust_time = rl.get_time()
 
   def plus_clicked(self):
     self.set_param(self.get_param() + self.step)
+    self._last_adjust_time = rl.get_time()
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     if rl.check_collision_point_rec(mouse_pos, self.minus_hit_rect):
@@ -133,7 +197,7 @@ class BigParamIntControl(BigButtonBP):
     self.max = max
     self.step = step
 
-    self._sub_label.set_font_size(22)
+    self._sub_label.set_font_size(30)
 
     self.margin = self._rect.width * 0.1
     self.rect_size = LINE_L + 2 * CONTENT_MARGIN
@@ -142,6 +206,9 @@ class BigParamIntControl(BigButtonBP):
     self.params = Params()
     self.set_click_callback(self._on_click)
     self.update_label()
+
+    self._last_adjust_time: float | None = None
+    self._last_rect_x: float | None = None
 
   def _on_click(self):
     if self.min is not None or self.max is not None:
@@ -168,6 +235,7 @@ class BigParamIntControl(BigButtonBP):
       #revert to default
       self.params.remove(self.param)
       self.update_label()
+    self._last_adjust_time = rl.get_time()
 
   def get_param(self) -> int:
     try:
@@ -182,7 +250,7 @@ class BigParamIntControl(BigButtonBP):
     elif self.max is not None and value > self.max:
       value = self.max
 
-    self.params.put(self.param, value)
+    self.params.put_nonblocking(self.param, value)
     self.update_label(value)
 
   def update_label(self, value: int = None):
@@ -223,15 +291,20 @@ class BigParamIntControl(BigButtonBP):
     m = self.right - LINE_L/2
     rl.draw_line_ex((m,self.top-LINE_L/2), (m, self.top+LINE_L/2), LINE_W, rl.WHITE)
 
+    self._last_adjust_time, self._last_rect_x = _draw_adjust_overlay(
+      self, self._last_adjust_time, self._last_rect_x)
+
   def set_step(self, value: int):
      value -= value % self.step
      self.set_param(value)
 
   def minus_clicked(self):
     self.set_step(self.get_param() - self.step)
+    self._last_adjust_time = rl.get_time()
 
   def plus_clicked(self):
     self.set_step(self.get_param() + self.step)
+    self._last_adjust_time = rl.get_time()
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     if rl.check_collision_point_rec(mouse_pos, self.minus_hit_rect):

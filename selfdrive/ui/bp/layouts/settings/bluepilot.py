@@ -13,7 +13,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item
-from openpilot.selfdrive.ui.bp.widgets.section_header import SectionHeader
+from openpilot.selfdrive.ui.bp.widgets.section_header import CollapsibleSectionHeader
 
 
 class BluePilotLayout(Widget):
@@ -73,6 +73,8 @@ class BluePilotLayout(Widget):
       ("disable_BP_lat_UI", self._disable_BP_lat),
       ("disable_BP_long_UI", self._disable_BP_long),
       ("disable_downhill_comp_UI", self._disable_dowhill_comp),
+      ("disable_ford_radar_UI", self._disable_ford_radar),
+      ("BpShowLateralControl", self._show_lateral_control),
       ("BPUIDebugLog", self._ui_debug_log),
     )
 
@@ -248,10 +250,10 @@ class BluePilotLayout(Widget):
     # Lane change factor high (float)
     self._lane_change_factor_high = float_control_item(
       lambda: tr("Lane Change Factor High"),
-      lambda: tr("Adjust the high-speed lane change factor (0.5-1.0)."),
+      lambda: tr("Scales steering during a lane change. <1.0 reduces (curvature control); >1.0 boosts (angle control)."),
       param="lane_change_factor_high",
       min_value=0.5,
-      max_value=1.0,
+      max_value=2.0,
       step=0.05,
       icon="speed_limit.png"
     )
@@ -329,15 +331,14 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
-    # Low curvature PID gain (float, conditional on custom profile)
+    # Centering PID gain — used by angle-mode trim (always) and curv-mode lane positioning (when custom_profile is on).
     self._lc_pid_gain = float_control_item(
-      lambda: tr("Low Curvature PID Gain"),
-      lambda: tr("Adjust the low curvature PID gain (0.0-5.0)."),
+      lambda: tr("Centering PID gain"),
+      lambda: tr("PID gain for the centering controller. In angle mode, drives the path_angle trim. In curvature mode, drives the path_angle PID (only effective when 'custom profile' is enabled)."),
       param="LC_PID_gain_UI",
       min_value=0.0,
-      max_value=5.0,
-      step=0.1,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      max_value=50.0,
+      step=0.5,
       icon="chffr_wheel.png"
     )
 
@@ -362,7 +363,8 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
-    # Primary lateral control variable: curvature (existing 4-signal) vs angle (path_angle-primary)
+    # Lane line feedback trim — toggle + tuning floats
+    # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
     plat_raw = self._safe_get(self._params, "FordPrefPrimaryLateralControl") or b"curvature"
     plat_str = (plat_raw.decode("utf-8", errors="replace").strip("\x00").lower()
                 if isinstance(plat_raw, bytes) else str(plat_raw).strip().lower())
@@ -399,7 +401,6 @@ class BluePilotLayout(Widget):
       step=0.01,
       icon="chffr_wheel.png"
     )
-
     # Disable BP lateral control toggle
     self._disable_BP_lat = toggle_item(
       lambda: tr("Disable BP Lateral Control"),
@@ -427,6 +428,24 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
+    # Disable Ford radar — vision-only lead detection (requires reboot)
+    self._disable_ford_radar = toggle_item(
+      lambda: tr("Disable Ford Radar (Vision-Only Leads)"),
+      lambda: tr("Ignore the vehicle radar and drive leads exclusively from the vision model. Requires reboot."),
+      initial_state=self._safe_get_bool(self._params, "disable_ford_radar_UI"),
+      callback=lambda state: self._toggle_callback(state, "disable_ford_radar_UI"),
+      icon="chffr_wheel.png"
+    )
+
+    # Show lateral control mode overlay toggle
+    self._show_lateral_control = toggle_item(
+      lambda: tr("Show Lateral Control Mode"),
+      lambda: tr("Display the lateral control mode overlay on the steering wheel icon."),
+      initial_state=self._safe_get_bool(self._params, "BpShowLateralControl"),
+      callback=lambda state: self._toggle_callback(state, "BpShowLateralControl"),
+      icon="chffr_wheel.png"
+    )
+
     # Preferred WiFi Network selector
     self._preferred_network_action = ButtonAction(lambda: tr("SELECT"))
     self._preferred_network_action.set_value(lambda: self._get_preferred_network_display())
@@ -445,47 +464,73 @@ class BluePilotLayout(Widget):
       callback=self._clear_model_cache
     )
 
-    # Build menu with sections per TICI_MENU.csv
-    return [
-      SectionHeader(tr("System")),
-      self._preferred_network_btn,
-      self._clear_model_cache_btn,
-      self._ui_debug_log,
-      SectionHeader(tr("Vehicle")),
-      self._show_hands_free_ui,
-      self._vbatt_pause_charging,
-      SectionHeader(tr("Visuals")),
-      self._hide_onroad_border,
-      self._disable_lane_line_status_color,
-      self._show_blindspot,
-      self._show_brake_status,
-      self._show_confidence_ball,
-      self._animate_steering_wheel,
-      self._show_ford_radar_overlay,
-      self._radar_overlay_size_btn,
-      self._show_hybrid_battery_status,
-      self._show_hybrid_power_flow,
-      self._hybrid_gauge_size_btn,
-      self._hybrid_gauge_style_btn,
-      SectionHeader(tr("Longitudinal Tuning")),
-      self._disable_BP_long,
-      self._disable_dowhill_comp,
-      SectionHeader(tr("Lateral Tuning")),
-      self._primary_lateral_control_btn,
-      self._low_speed_curv_factor,
-      self._high_speed_curv_factor,
-      self._disable_BP_lat,
-      self._enable_human_turn_detection,
-      self._disable_lane_change_under_speed,
-      self._lane_change_factor_high,
-      self._enable_lane_positioning,
-      self._custom_path_offset,
-      self._enable_lane_full_mode,
-      self._custom_profile,
-      self._pc_blend_ratio_high_C,
-      self._pc_blend_ratio_low_C,
-      self._lc_pid_gain,
-    ]
+    # BluePilot: reset menu layout — collapses all sections, fixing overlap glitch without reboot.
+    self._reset_menu_btn = button_item(
+      lambda: tr("Reset Menu Layout"),
+      lambda: tr("RESET"),
+      lambda: tr("Collapse all sections to fix overlapping items. Use this if the menu looks broken."),
+      callback=lambda: self._scroller.show_event()
+    )
+    # End BluePilot
+
+    # BluePilot: collapsible section groups — all start collapsed when the menu opens.
+    def _section(title: str, items: list) -> list:
+      header = CollapsibleSectionHeader(title)
+      header.set_items(items)
+      return [header] + items
+
+    return (
+      _section(tr("System"), [
+        self._preferred_network_btn,
+        self._reset_menu_btn,
+        self._clear_model_cache_btn,
+        self._ui_debug_log,
+      ]) +
+      _section(tr("Vehicle"), [
+        self._show_hands_free_ui,
+        self._vbatt_pause_charging,
+      ]) +
+      _section(tr("Visuals"), [
+        self._hide_onroad_border,
+        self._disable_lane_line_status_color,
+        self._show_blindspot,
+        self._show_brake_status,
+        self._show_confidence_ball,
+        self._animate_steering_wheel,
+        self._show_ford_radar_overlay,
+        self._radar_overlay_size_btn,
+        self._show_hybrid_battery_status,
+        self._show_hybrid_power_flow,
+        self._hybrid_gauge_size_btn,
+        self._hybrid_gauge_style_btn,
+      ]) +
+      _section(tr("Longitudinal Tuning"), [
+        self._disable_BP_long,
+        self._disable_dowhill_comp,
+        self._disable_ford_radar,
+      ]) +
+      _section(tr("Lateral Tuning"), [
+        self._primary_lateral_control_btn,
+        self._low_speed_curv_factor,
+        self._high_speed_curv_factor,
+        self._disable_BP_lat,
+        # BluePilot: hidden during angle tuning — restore when curvature mode is active
+        # self._enable_human_turn_detection,
+        # End BluePilot
+        self._disable_lane_change_under_speed,
+        self._lane_change_factor_high,
+        self._custom_path_offset,
+        # BluePilot: hidden during angle tuning — restore when curvature mode is active
+        # self._enable_lane_positioning,
+        # self._enable_lane_full_mode,
+        # self._custom_profile,
+        # self._pc_blend_ratio_high_C,
+        # self._pc_blend_ratio_low_C,
+        # End BluePilot
+        self._show_lateral_control,
+      ])
+    )
+    # End BluePilot
 
   def _get_float_param(self, param: str, default: float) -> float:
     """Get float parameter value."""
@@ -540,15 +585,19 @@ class BluePilotLayout(Widget):
     raw_plat = self._safe_get(ui_state.params, "FordPrefPrimaryLateralControl") or b"curvature"
     plat = (raw_plat.decode("utf-8", errors="replace").strip("\x00").lower()
             if isinstance(raw_plat, bytes) else str(raw_plat).strip().lower())
-    self._primary_lateral_control_btn.action_item.set_selected_button(1 if plat == "angle" else 0)
+    plat_idx = 1 if plat == "angle" else 0
+    self._primary_lateral_control_btn.action_item.set_selected_button(plat_idx)
     # Use just_toggled for params we just wrote to avoid update_params refresh race
-    lane_pos = fresh.get("enable_lane_positioning") if "enable_lane_positioning" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning")
     custom_prof = fresh.get("custom_profile") if "custom_profile" in fresh else self._safe_get_bool(ui_state.params, "custom_profile")
-    self._custom_path_offset.action_item.set_enabled(lane_pos)
-    self._enable_lane_full_mode.action_item.set_enabled(lane_pos)
-    self._pc_blend_ratio_high_C.action_item.set_enabled(custom_prof)
-    self._pc_blend_ratio_low_C.action_item.set_enabled(custom_prof)
-    self._lc_pid_gain.action_item.set_enabled(lane_pos and custom_prof)
+    # BluePilot: in angle mode, in-lane offset is always available (no enable_lane_positioning gate)
+    self._custom_path_offset.action_item.set_enabled(True)
+    # self._enable_lane_full_mode.action_item.set_enabled(lane_pos)  # hidden during angle tuning
+    # End BluePilot
+    # BluePilot: hidden during angle tuning — restore when curvature mode is active
+    # self._pc_blend_ratio_high_C.action_item.set_enabled(custom_prof)
+    # self._pc_blend_ratio_low_C.action_item.set_enabled(custom_prof)
+    # self._lc_pid_gain.action_item.set_enabled(lane_pos and custom_prof)
+    # End BluePilot
 
   def show_event(self):
     super().show_event()
@@ -667,7 +716,7 @@ class BluePilotLayout(Widget):
           self._params.remove("ModelManager_ActiveBundle")
         except Exception:
           pass
-        self._params.put_bool("DoReboot", True)
+        self._params.put_bool_nonblocking("DoReboot", True)
         cloudlog.info("BluePilot: Cleared model cache (ModelRunnerTypeCache, ModelManager_ActiveBundle), triggered reboot")
 
     dialog = ConfirmDialog(
@@ -690,7 +739,7 @@ class BluePilotLayout(Widget):
     self._params.put("FordPrefHybridGaugeStyle", "arched" if button_index == 1 else "flat")
 
   def _set_primary_lateral_control(self, button_index: int):
-    """Handle primary lateral control variable: 0 = curvature, 1 = angle."""
+    """0 = curvature-primary, 1 = angle-primary."""
     try:
       self._params.put("FordPrefPrimaryLateralControl", "angle" if button_index == 1 else "curvature")
     except UnknownKeyName:

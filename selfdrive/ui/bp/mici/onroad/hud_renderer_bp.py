@@ -4,7 +4,9 @@ from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.bp.mici.onroad.powerflow_gauge import MiciPowerflowGauge
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
-
+from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.system.ui.lib.application import gui_app
+from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
 
 class MiciHudRendererBP(HudRenderer):
   """BluePilot MICI HudRenderer with brake status coloring and powerflow gauge."""
@@ -14,6 +16,13 @@ class MiciHudRendererBP(HudRenderer):
     self._bp_params = Params()
     self._brakes_on = False
     self._power_flow = MiciPowerflowGauge()
+    self.show_lateral_control = False
+    self.disable_bp_lat = True
+    self.primary_control = "curvature"
+    # BluePilot: Track overlay hit-area for click-to-toggle
+    self._overlay_center_x = 0
+    self._overlay_center_y = 0
+    self._overlay_size = 0
 
   def _update_state(self) -> None:
     super()._update_state()
@@ -29,6 +38,11 @@ class MiciHudRendererBP(HudRenderer):
     else:
       self._brakes_on = False
 
+    self.show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
+    if(self.show_lateral_control):
+      self.disable_bp_lat = self._bp_params.get_bool("disable_BP_lat_UI")
+      self.primary_control = self._bp_params.get("FordPrefPrimaryLateralControl") or "curvature"
+
     bp_ui_log.state("MiciHudRenderer", "brakes_on", self._brakes_on)
 
   def _render(self, rect: rl.Rectangle) -> None:
@@ -41,10 +55,12 @@ class MiciHudRendererBP(HudRenderer):
     self._draw_steering_wheel(rect)
 
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
-    """Override to add brake status coloring to wheel icon and powerflow gauge."""
+    """Override to add brake status coloring to wheel icon, powerflow gauge, and lateral control overlay."""
     wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else self._txt_wheel
 
     bsm_detected = self._has_blind_spot_detected() if hasattr(self, '_has_blind_spot_detected') else False
+
+    show_lateral = True
 
     if self._show_wheel_critical:
       self._wheel_alpha_filter.update(255)
@@ -53,6 +69,7 @@ class MiciHudRendererBP(HudRenderer):
       if ui_state.status == UIStatus.DISENGAGED or bsm_detected:
         self._wheel_alpha_filter.update(0)
         self._wheel_y_filter.update(wheel_txt.height / 2)
+        show_lateral = False
       else:
         self._wheel_alpha_filter.update(255 * 0.9)
         self._wheel_y_filter.update(0)
@@ -86,6 +103,9 @@ class MiciHudRendererBP(HudRenderer):
       exclamation_pos_y = pos_y - self._txt_exclamation_point.height / 2
       rl.draw_texture(self._txt_exclamation_point, int(exclamation_pos_x), int(exclamation_pos_y), rl.WHITE)
 
+    if show_lateral:
+      self._draw_lateral_control_overlay(pos_x, pos_y, wheel_txt.width)
+
     # BluePilot: Render powerflow gauge around steering wheel
     power_flow_radius = self._power_flow.RADIUS
     power_rect = rl.Rectangle(
@@ -95,3 +115,49 @@ class MiciHudRendererBP(HudRenderer):
       wheel_txt.height + power_flow_radius * 2)
     self._power_flow.set_wheel_rect(power_rect)
     self._power_flow.render(rect)
+
+  def _draw_lateral_control_overlay(self, center_x: int, center_y: int, wheel_size: int) -> None:
+    """Draw a letter overlay indicating current lateral control mode (only when wheel is visible)."""
+    if not self.show_lateral_control or self._wheel_alpha_filter.x <= 0:
+      self._overlay_size = 0
+      return
+
+    text_size = int(wheel_size * 0.65)
+    self._overlay_center_x = center_x
+    self._overlay_center_y = center_y
+    self._overlay_size = text_size
+
+    if self.disable_bp_lat:
+      letter, color = "OP", rl.Color(100, 100, 100, 220)  # Reddish
+    else:
+      if self.primary_control == "angle":
+        letter, color = "A", rl.Color(50, 100, 255, 220)  # Blue-ish
+      else:
+        letter, color = "C", rl.Color(255, 165, 0, 220)  # Orange
+
+    text_dims = measure_text_cached(self._font_bold, letter, text_size)
+    text_x = center_x - text_dims.x / 2
+    text_y = center_y - text_dims.y / 2
+
+    top = rl.Color(250, 250, 250, 200)
+    bottom = rl.Color(200, 200, 200, 200)
+    draw_shader_circle_gradient(center_x, center_y, text_size / 2, top, bottom)
+
+    rl.draw_text_ex(self._font_bold, letter, rl.Vector2(text_x, text_y), text_size, 0, color)
+
+  def _handle_mouse_press(self, mouse_pos):
+    """Toggle FordPrefPrimaryLateralControl between 'angle' and 'curvature' on overlay click."""
+    if self._overlay_size <= 0 or self.disable_bp_lat:
+      return
+
+    hit_rect = rl.Rectangle(
+      self._overlay_center_x - self._overlay_size/2,
+      self._overlay_center_y - self._overlay_size/2,
+      self._overlay_size,
+      self._overlay_size,
+    )
+    if rl.check_collision_point_rec(mouse_pos, hit_rect):
+      gui_app._mouse_events.clear()
+      current = self._bp_params.get("FordPrefPrimaryLateralControl") or "curvature"
+      new_value = "angle" if current == "curvature" else "curvature"
+      self._bp_params.put("FordPrefPrimaryLateralControl", new_value)
