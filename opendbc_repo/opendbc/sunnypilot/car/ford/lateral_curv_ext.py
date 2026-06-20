@@ -16,6 +16,7 @@ https://www.f150gen14.com/forum/threads/introducing-bluepilot-a-ford-specific-fo
 """
 
 from collections import namedtuple, deque
+from enum import IntEnum
 
 import cereal.messaging as messaging
 import numpy as np
@@ -28,6 +29,11 @@ from opendbc.car.vehicle_model import VehicleModel
 from opendbc.car.ford.values import CarControllerParams, FordFlags
 from opendbc.sunnypilot.car.ford.values_ext import BP_ANGLE_LIMITS, CURVATURE_MAX
 from selfdrive.modeld.constants import ModelConstants
+
+
+class PrimaryLateralControl(IntEnum):
+  curvature = 0
+  angle = 1
 
 
 # CAN FD lateral-accel cap (match opendbc/car/ford/carcontroller.py apply_ford_curvature_limits)
@@ -107,9 +113,8 @@ class LateralCurvExt:
     self.lp = None
     self.ss = None
 
-    # Primary lateral control variable: "curvature" (default) or "angle" (LateralAngleExt).
-    # Read each frame in update_lateral_params; consumed by CarController's lateral dispatch.
-    self.primary_lateral_control = "curvature"
+    # Primary lateral control variable: consumed by CarController's lateral dispatch.
+    self.primary_lateral_control = PrimaryLateralControl.curvature
 
     # Toggles (updated from Params each frame)
     self.enable_human_turn_detection = True
@@ -211,11 +216,7 @@ class LateralCurvExt:
     self.custom_profile = int(params.get("custom_profile", return_default=True))
     self.LC_PID_gain_UI = float(params.get("LC_PID_gain_UI", return_default=True))
 
-    # Primary lateral control mode ("curvature" | "angle"); consumed by CarController dispatch.
-    raw_mode = params.get("FordPrefPrimaryLateralControl", return_default=True)
-    if isinstance(raw_mode, bytes):
-      raw_mode = raw_mode.decode("utf-8", errors="replace").strip("\x00")
-    self.primary_lateral_control = raw_mode.strip().lower() if raw_mode else "curvature"
+    self.primary_lateral_control = PrimaryLateralControl(params.get("FordPrefLateralControl", return_default=True) or 0)
 
   def _ensure_lateral_curv_initialized(self, CP):
     # Compatibility shim for LateralAngleExt, which calls this as a lazy-init guard. In this

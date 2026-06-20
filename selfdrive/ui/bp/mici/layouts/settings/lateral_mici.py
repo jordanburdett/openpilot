@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import (
   BigParamControlBP,
-  BigMultiParamToggleStrBP,
+  BigMultiParamToggleBP,
 )
 from openpilot.selfdrive.ui.bp.mici.widgets.floatbutton import BigParamFloatControl
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -17,8 +17,8 @@ class LateralLayoutMici(NavScroller):
     if back_callback is not None:
       self.set_back_callback(back_callback)
 
-    self.primary_lateral_control = BigMultiParamToggleStrBP(
-      "Primary Control Variable", "FordPrefPrimaryLateralControl", ["curvature", "angle"],
+    self.primary_lateral_control = BigMultiParamToggleBP(
+      "Primary Control Variable", "FordPrefLateralControl", ["curvature", "angle"],
     )
     self.low_speed_factor = BigParamFloatControl(
       "Low Speed Adjustment Factor", "FordAngleLowSpeedFactor", min=0.5, max=1.5, step=0.01,

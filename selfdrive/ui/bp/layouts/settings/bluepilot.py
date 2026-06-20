@@ -14,6 +14,7 @@ from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item
 from openpilot.selfdrive.ui.bp.widgets.section_header import CollapsibleSectionHeader
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 
 
 class BluePilotLayout(Widget):
@@ -365,15 +366,7 @@ class BluePilotLayout(Widget):
 
     # Lane line feedback trim — toggle + tuning floats
     # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
-    plat_raw = self._safe_get(self._params, "FordPrefPrimaryLateralControl") or b"curvature"
-    plat_str = (plat_raw.decode("utf-8", errors="replace").strip("\x00").lower()
-                if isinstance(plat_raw, bytes) else str(plat_raw).strip().lower())
-    primary_lat_idx = 1 if plat_str == "angle" else 0
-    try:
-      if plat_str not in ("curvature", "angle"):
-        self._params.put("FordPrefPrimaryLateralControl", "curvature")
-    except UnknownKeyName:
-      pass
+    primary_lat_idx = PrimaryLateralControl(self._params.get("FordPrefLateralControl", return_default=True) or 0)
     self._primary_lateral_control_btn = multiple_button_item(
       lambda: tr("Primary Control Variable"),
       lambda: tr("Curvature matches the existing strategy. Angle uses path_angle as the main actuator (in development)."),
@@ -582,10 +575,7 @@ class BluePilotLayout(Widget):
                  if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
     style_idx = 1 if style_str == "arched" else 0
     self._hybrid_gauge_style_btn.action_item.set_selected_button(style_idx)
-    raw_plat = self._safe_get(ui_state.params, "FordPrefPrimaryLateralControl") or b"curvature"
-    plat = (raw_plat.decode("utf-8", errors="replace").strip("\x00").lower()
-            if isinstance(raw_plat, bytes) else str(raw_plat).strip().lower())
-    plat_idx = 1 if plat == "angle" else 0
+    plat_idx = PrimaryLateralControl(ui_state.params.get("FordPrefLateralControl", return_default=True) or 0)
     self._primary_lateral_control_btn.action_item.set_selected_button(plat_idx)
     # Use just_toggled for params we just wrote to avoid update_params refresh race
     custom_prof = fresh.get("custom_profile") if "custom_profile" in fresh else self._safe_get_bool(ui_state.params, "custom_profile")
@@ -739,9 +729,8 @@ class BluePilotLayout(Widget):
     self._params.put("FordPrefHybridGaugeStyle", "arched" if button_index == 1 else "flat")
 
   def _set_primary_lateral_control(self, button_index: int):
-    """0 = curvature-primary, 1 = angle-primary."""
     try:
-      self._params.put("FordPrefPrimaryLateralControl", "angle" if button_index == 1 else "curvature")
+      self._params.put("FordPrefLateralControl", int(PrimaryLateralControl(button_index)))
     except UnknownKeyName:
       pass
 

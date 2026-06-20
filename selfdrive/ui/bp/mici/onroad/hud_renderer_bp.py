@@ -1,5 +1,6 @@
 import pyray as rl
 from openpilot.common.params import Params
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.bp.mici.onroad.powerflow_gauge import MiciPowerflowGauge
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
@@ -18,7 +19,7 @@ class MiciHudRendererBP(HudRenderer):
     self._power_flow = MiciPowerflowGauge()
     self.show_lateral_control = False
     self.disable_bp_lat = True
-    self.primary_control = "curvature"
+    self.primary_control = PrimaryLateralControl.curvature
     # BluePilot: Track overlay hit-area for click-to-toggle
     self._overlay_center_x = 0
     self._overlay_center_y = 0
@@ -41,7 +42,7 @@ class MiciHudRendererBP(HudRenderer):
     self.show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
     if(self.show_lateral_control):
       self.disable_bp_lat = self._bp_params.get_bool("disable_BP_lat_UI")
-      self.primary_control = self._bp_params.get("FordPrefPrimaryLateralControl") or "curvature"
+      self.primary_control = PrimaryLateralControl(self._bp_params.get("FordPrefLateralControl") or 0)
 
     bp_ui_log.state("MiciHudRenderer", "brakes_on", self._brakes_on)
 
@@ -130,7 +131,7 @@ class MiciHudRendererBP(HudRenderer):
     if self.disable_bp_lat:
       letter, color = "OP", rl.Color(100, 100, 100, 220)  # Reddish
     else:
-      if self.primary_control == "angle":
+      if self.primary_control == PrimaryLateralControl.angle:
         letter, color = "A", rl.Color(50, 100, 255, 220)  # Blue-ish
       else:
         letter, color = "C", rl.Color(255, 165, 0, 220)  # Orange
@@ -146,7 +147,7 @@ class MiciHudRendererBP(HudRenderer):
     rl.draw_text_ex(self._font_bold, letter, rl.Vector2(text_x, text_y), text_size, 0, color)
 
   def _handle_mouse_press(self, mouse_pos):
-    """Toggle FordPrefPrimaryLateralControl between 'angle' and 'curvature' on overlay click."""
+    """Toggle FordPrefLateralControl between PrimaryLateralControl.curvature and .angle on overlay click."""
     if self._overlay_size <= 0 or self.disable_bp_lat:
       return
 
@@ -158,6 +159,6 @@ class MiciHudRendererBP(HudRenderer):
     )
     if rl.check_collision_point_rec(mouse_pos, hit_rect):
       gui_app._mouse_events.clear()
-      current = self._bp_params.get("FordPrefPrimaryLateralControl") or "curvature"
-      new_value = "angle" if current == "curvature" else "curvature"
-      self._bp_params.put("FordPrefPrimaryLateralControl", new_value)
+      current = PrimaryLateralControl(self._bp_params.get("FordPrefLateralControl") or 0)
+      new_value = PrimaryLateralControl.curvature if current == PrimaryLateralControl.angle else PrimaryLateralControl.angle
+      self._bp_params.put("FordPrefLateralControl", int(new_value))

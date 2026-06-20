@@ -9,7 +9,7 @@ from opendbc.car.interfaces import CarControllerBase, V_CRUISE_MAX
 from openpilot.common.params import Params
 
 # BluePilot: extension imports for lateral, longitudinal, and HUD control
-from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralCurvExt
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralCurvExt, PrimaryLateralControl
 from opendbc.sunnypilot.car.ford.lateral_angle_ext import LateralAngleExt
 from opendbc.sunnypilot.car.ford.longitudinal_ext import LongitudinalExt
 from opendbc.sunnypilot.car.ford.hud_ext import HudExt
@@ -161,13 +161,13 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
           can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, CC.latActive, 0., 0., -self.apply_curvature_last, 0.))
       else:
         # BluePilot: select the BP lateral strategy by primary control variable.
-        #   "angle"     -> LateralAngleExt: κ → path_angle (c1), apply_curvature held at 0.
-        #   "curvature" -> LateralCurvExt: full 4-signal curvature-primary (default).
+        #   1 (angle)     -> LateralAngleExt: κ → path_angle (c1), apply_curvature held at 0.
+        #   0 (curvature) -> LateralCurvExt: full 4-signal curvature-primary (default).
         # Both return a LateralResult packed identically below.
         # Do not run apply_ford_curvature_limits here or overwrite apply_curvature_last before the
         # strategy runs. Panda rate-checks desired_curvature vs the last TX on the bus; that must match
         # the prior frame's lat.apply_curvature only (not an intermediate stock-limited value).
-        if self.primary_lateral_control == "angle":
+        if self.primary_lateral_control == PrimaryLateralControl.angle:
           lat = LateralAngleExt.update_angle_strategy(self, CC, CS, actuators, self.CP)
         else:
           lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
