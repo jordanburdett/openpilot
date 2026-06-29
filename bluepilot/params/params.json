@@ -103,9 +103,9 @@
       "enabled": true
     },
     {
-      "name": "FordPrefHybridGaugeStyle",
-      "default": "flat",
-      "type": "string",
+      "name": "FordPrefGaugeStyle",
+      "default": 0,
+      "type": "int",
       "flags": ["PERSISTENT", "BACKUP"],
       "create_default": true,
       "enabled": true
@@ -170,9 +170,9 @@
       "enabled": true
     },
     {
-      "name": "FordPrefPrimaryLateralControl",
-      "default": "curvature",
-      "type": "string",
+      "name": "FordPrefLateralControl",
+      "default": 0,
+      "type": "int",
       "flags": ["PERSISTENT", "BACKUP"],
       "create_default": true,
       "enabled": true
