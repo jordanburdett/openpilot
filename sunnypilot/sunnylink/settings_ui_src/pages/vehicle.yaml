@@ -46,6 +46,10 @@ sections:
     widget: toggle
     title: '[Visuals] Disable Lane Line Status Color'
     description: Keep lane lines grey instead of changing to green when engaged.
+  - key: BPHideCameraView
+    widget: toggle
+    title: '[Visuals] Minimal Driving View'
+    description: Disable camera feed & only show lane lines and model path.
   - key: ShowBlindspotOverlay
     widget: toggle
     title: '[Visuals] Show Blindspot Overlay'

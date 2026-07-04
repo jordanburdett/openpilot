@@ -59,6 +59,7 @@ class BluePilotLayout(Widget):
     self._refresh_toggles = (
       ("send_hands_free_cluster_msg", self._show_hands_free_ui),
       ("BPDisableLaneLineStatusColor", self._disable_lane_line_status_color),
+      ("BPHideCameraView", self._hide_camera_view),
       ("ShowBlindspotOverlay", self._show_blindspot),
       ("ShowBrakeStatus", self._show_brake_status),
       ("BPHideOnroadBorder", self._hide_onroad_border),
@@ -101,6 +102,15 @@ class BluePilotLayout(Widget):
       initial_state=self._safe_get_bool(self._params, "BPDisableLaneLineStatusColor"),
       callback=lambda state: self._toggle_callback(state, "BPDisableLaneLineStatusColor"),
       icon="monitoring.png"
+    )
+
+    # Minimal driving view toggle
+    self._hide_camera_view = toggle_item(
+      lambda: tr("Minimal Driving View"),
+      lambda: tr("Disable camera feed & only show lane lines and model path."),
+      initial_state=self._safe_get_bool(self._params, "BPHideCameraView"),
+      callback=lambda state: self._toggle_callback(state, "BPHideCameraView"),
+      icon="chffr_wheel.png"
     )
 
     # Blindspot overlay toggle (BluePilot red edge overlay; SunnyPilot BSM is controlled by Visuals → BlindSpot)
@@ -508,6 +518,7 @@ class BluePilotLayout(Widget):
       _section(tr("Visuals"), [
         self._hide_onroad_border,
         self._disable_lane_line_status_color,
+        self._hide_camera_view,
         self._show_blindspot,
         self._show_brake_status,
         self._show_confidence_ball,

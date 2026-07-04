@@ -24,6 +24,7 @@ class VisualsLayoutMici(NavScroller):
     self.rainbow_mode = BigParamControlBP("Rainbow Mode", "RainbowMode")
     self.hide_fade = BigParamControlBP("Hide Onroad Fade", "mici_hide_onroad_fade")
     self.hide_border = BigParamControlBP("Hide Onroad Border", "BPHideOnroadBorder")
+    self.hide_camera_view = BigParamControlBP("Minimal Driving View", "BPHideCameraView")
     self.show_blindspot_ui = BigParamControlBP("Show Blindspot Overlay", "ShowBlindspotOverlay")
     self.show_brake_status = BigParamControlBP("Show Brake Status", "ShowBrakeStatus")
     self.animate_steering_wheel = BigParamControlBP("Animate Steering Wheel", "BPAnimateSteeringWheel")
@@ -37,6 +38,7 @@ class VisualsLayoutMici(NavScroller):
       self.rainbow_mode,
       self.hide_fade,
       self.hide_border,
+      self.hide_camera_view,
       self.show_blindspot_ui,
       self.show_brake_status,
       self.animate_steering_wheel,
@@ -48,6 +50,7 @@ class VisualsLayoutMici(NavScroller):
       ("RainbowMode", self.rainbow_mode),
       ("mici_hide_onroad_fade", self.hide_fade),
       ("BPHideOnroadBorder", self.hide_border),
+      ("BPHideCameraView", self.hide_camera_view),
       ("ShowBlindspotOverlay", self.show_blindspot_ui),
       ("ShowBrakeStatus", self.show_brake_status),
       ("BPAnimateSteeringWheel", self.animate_steering_wheel),

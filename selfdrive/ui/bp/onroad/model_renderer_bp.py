@@ -26,6 +26,12 @@ LEAD_VISION_CHEVRON_BASE = rl.Color(201, 34, 49, 255)
 
 # BluePilot: Overlay size scale factors (Small=0, Medium=1, Large=2)
 OVERLAY_SCALE_FACTORS = {0: 0.6, 1: 1.0, 2: 1.5}
+LANE_LINE_WIDTH = 0.05
+MINIMAL_VIEW_LANE_LINE_WIDTH = 0.075
+MINIMAL_VIEW_OUTER_LANE_LINE_WIDTH = 0.09
+ROAD_EDGE_WIDTH = 0.05
+MINIMAL_VIEW_ROAD_EDGE_WIDTH = 0.075
+MINIMAL_VIEW_NEUTRAL_LANE_COLOR = rl.Color(185, 205, 225, 255)
 
 
 class ModelRendererBP(ModelRenderer):
@@ -51,6 +57,8 @@ class ModelRendererBP(ModelRenderer):
     # BluePilot: Cache params to avoid per-frame disk I/O (refreshed in existing 60-frame block)
     self.ford_overlay_enabled = self._bp_params.get_bool("FordPrefShowRadarLeadOverlay")
     self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
+    self._hide_camera_view = self._bp_params.get_bool("BPHideCameraView")
+    self._transform_dirty = True
 
     # BluePilot: Lead position smoothing filters to reduce radar jitter
     dt = 1 / gui_app.target_fps
@@ -61,6 +69,16 @@ class ModelRendererBP(ModelRenderer):
     self._lead_v_filters = [FirstOrderFilter(0, 0.3, dt, initialized=False),
                             FirstOrderFilter(0, 0.3, dt, initialized=False)]
     self._lead_was_active = [False, False]
+
+  def _refresh_bp_params(self) -> None:
+    """Refresh cached BluePilot params and invalidate model geometry when visual widths change."""
+    hide_camera_view = self._bp_params.get_bool("BPHideCameraView")
+    if hide_camera_view != self._hide_camera_view:
+      self._transform_dirty = True
+    self._hide_camera_view = hide_camera_view
+
+    self.ford_overlay_enabled = self._bp_params.get_bool("FordPrefShowRadarLeadOverlay")
+    self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
 
   def _render(self, rect: rl.Rectangle):
     sm = ui_state.sm
@@ -93,8 +111,7 @@ class ModelRendererBP(ModelRenderer):
         size_val = 1
       self._overlay_scale = OVERLAY_SCALE_FACTORS.get(size_val, 1.0)
       # BluePilot: Refresh cached params (avoids per-frame disk I/O)
-      self.ford_overlay_enabled = self._bp_params.get_bool("FordPrefShowRadarLeadOverlay")
-      self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
+      self._refresh_bp_params()
     self._counter += 1
 
     if sm.updated['carParams']:
@@ -202,17 +219,22 @@ class ModelRendererBP(ModelRenderer):
     """Update model with doubled lane line width and path smoothing."""
     super()._update_model(lead, path_x_array)
 
-    # BluePilot: Redo lane lines and road edges with doubled width (0.05 vs upstream 0.025)
+    # BluePilot: Redo lane lines and road edges with enhanced widths.
     max_distance = np.clip(path_x_array[-1], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
     max_idx = self._get_path_length_idx(self._lane_lines[0].raw_points[:, 0], max_distance)
 
     for i, lane_line in enumerate(self._lane_lines):
+      is_current_lane = (i == 1 or i == 2)
+      lane_line_width = LANE_LINE_WIDTH
+      if self._hide_camera_view:
+        lane_line_width = MINIMAL_VIEW_LANE_LINE_WIDTH if is_current_lane else MINIMAL_VIEW_OUTER_LANE_LINE_WIDTH
       lane_line.projected_points = self._map_line_to_polygon(
-        lane_line.raw_points, 0.05 * self._lane_line_probs[i], 0.0, max_idx, max_distance
+        lane_line.raw_points, lane_line_width * self._lane_line_probs[i], 0.0, max_idx, max_distance
       )
 
+    road_edge_width = MINIMAL_VIEW_ROAD_EDGE_WIDTH if self._hide_camera_view else ROAD_EDGE_WIDTH
     for road_edge in self._road_edges:
-      road_edge.projected_points = self._map_line_to_polygon(road_edge.raw_points, 0.05, 0.0, max_idx, max_distance)
+      road_edge.projected_points = self._map_line_to_polygon(road_edge.raw_points, road_edge_width, 0.0, max_idx, max_distance)
 
     self._apply_smooth_path()
 
@@ -263,6 +285,9 @@ class ModelRendererBP(ModelRenderer):
     Outer lanes use white. All lanes go black when disengaged.
     When BPDisableLaneLineStatusColor is enabled, current lanes use white instead of status color.
     """
+    if self._hide_camera_view and ui_state.status != UIStatus.ENGAGED:
+      return MINIMAL_VIEW_NEUTRAL_LANE_COLOR
+
     if ui_state.status == UIStatus.DISENGAGED:
       return rl.Color(0, 0, 0, 255)
 

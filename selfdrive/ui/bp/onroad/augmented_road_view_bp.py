@@ -5,7 +5,7 @@ from cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
-from openpilot.selfdrive.ui.onroad.cameraview import CameraView
+from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
@@ -46,7 +46,7 @@ TORQUE_STRIP_GAP = 3       # Gap between strip bottom and gauge content top
 FULL_CONTENT_WIDTH = 2100.0
 
 
-class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
+class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
   """BluePilot AugmentedRoadView with blindspot indicators, gauges, and BP renderers."""
 
   BLIND_SPOT_WIDTH = 250  # Wider for TICI's larger screen
@@ -132,8 +132,8 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
       int(self._content_rect.height)
     )
 
-    # Render the base camera view
-    CameraView._render(self, rect)
+    # Render the base camera view. Minimal Driving View suppression lives in CameraViewBP.
+    CameraViewBP._render(self, rect)
 
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)

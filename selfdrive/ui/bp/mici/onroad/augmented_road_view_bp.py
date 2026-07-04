@@ -6,7 +6,7 @@ from openpilot.common.params import Params
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
 from openpilot.selfdrive.ui.mici.onroad.augmented_road_view import AugmentedRoadView
-from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
+from openpilot.selfdrive.ui.bp.mici.onroad.cameraview_bp import MiciCameraViewBP
 from openpilot.selfdrive.ui.bp.mici.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.mici.onroad.hud_renderer_bp import MiciHudRendererBP
@@ -62,7 +62,7 @@ class _VerticalSwipeDetector(Widget):
     pass  # transparent — visual is handled by parent
 
 
-class MiciAugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
+class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
   """BluePilot MICI AugmentedRoadView with blindspot indicators, BP HUD, and complication."""
 
   BLIND_SPOT_WIDTH = 125  # Narrower for MICI's smaller screen
@@ -132,8 +132,8 @@ class MiciAugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
       int(self._content_rect.height)
     )
 
-    # Render the base camera view
-    CameraView._render(self, self._content_rect)
+    # Render the base camera view. Minimal Driving View suppression lives in MiciCameraViewBP.
+    MiciCameraViewBP._render(self, self._content_rect)
 
     # Model overlays
     self._model_renderer.render(self._content_rect)
