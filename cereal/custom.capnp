@@ -467,6 +467,9 @@ struct CustomReserved12 @0x9ccdc8676701b412 {
 
 struct ControllerStateBP @0xcd96dafb67a082d0 {
   lateralUncertainty @0 :Float32;  # BluePilot: lateral uncertainty for angleState (e.g. torque bar)
+  # BluePilot: lateral rate-limit diagnostics (troubleshooting)
+  angleRateLimited     @1 :Bool;  # angle mode: the path_angle soft-ROC clip actually bit this frame
+  curvatureRateLimited @2 :Bool;  # would the equivalent curvature have been rate-limited by lateral_curv_ext (sim)
 }
 
 struct CarStateBP @0xb057204d7deadf3f {

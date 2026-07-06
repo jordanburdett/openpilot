@@ -176,3 +176,5 @@ class CarStateSP:
 @auto_dataclass
 class ControllerStateBP:
   lateralUncertainty: float = 0.0
+  angleRateLimited: bool = False       # angle mode: path_angle soft-ROC clip bit this frame
+  curvatureRateLimited: bool = False   # sim: equivalent curvature would be rate-limited by lateral_curv_ext

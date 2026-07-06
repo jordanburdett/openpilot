@@ -19,8 +19,10 @@ import numpy as np
 from numpy import clip, interp
 
 from opendbc.car import DT_CTRL
-from opendbc.car.ford.values import CAR
+from opendbc.car.lateral import apply_std_steer_angle_limits
+from opendbc.car.ford.values import CAR, CarControllerParams
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralResult
+from opendbc.sunnypilot.car.ford.values_ext import BP_ANGLE_LIMITS
 from selfdrive.modeld.constants import ModelConstants
 
 # Hard-coded per-platform gain defaults (not user-tunable).
@@ -162,6 +164,10 @@ class LateralAngleExt:
     self.bp_d_ref = 0.0                    # PSCM look-ahead distance used this frame (m)
     self.bp_yaw_rate_desired = 0.0         # kappaCmd × vEgo — target yaw rate (rad/s)
     self.bp_is_stable_curve_follow = False  # True when conditions are suitable for gain calibration
+    # BluePilot: rate-limit diagnostics (controllerStateBP)
+    self.bp_angle_rate_limited = False      # path_angle soft-ROC clip actually bit this frame
+    self.bp_curvature_rate_limited = False  # equivalent curvature would be rate-limited by curv-mode logic (sim)
+    self.sim_curvature_last = 0.0           # shadow curvature-mode last for the curvatureRateLimited sim
     # Exit detection: track previous desired curvature to sense when planner is actively reducing
     self._desired_curvature_last = 0.0
     # Centering trim state (Option C): additive on path_angle, c0 stays zero.
@@ -239,6 +245,9 @@ class LateralAngleExt:
       self.bp_d_ref = 0.0
       self.bp_yaw_rate_desired = 0.0
       self.bp_is_stable_curve_follow = False
+      self.bp_angle_rate_limited = False
+      self.bp_curvature_rate_limited = False
+      self.sim_curvature_last = 0.0
       self._ll_centre_error_filt = 0.0
       self.bp_swa_trim = 0.0
       self.bp_ll_centre_error = 0.0
@@ -378,9 +387,12 @@ class LateralAngleExt:
     # hardware bypass in ford.h is re-enabled.  Lets us observe whether the limit would
     # suppress control and tune it, while the PSCM still receives the clipped value.
     _soft_roc = float(interp(v_ego, [9., 10., 15., 25.], [0.011, 0.011, 0.0085, 0.0018]))
+    _path_angle_pre_roc = path_angle
     path_angle = float(clip(path_angle,
                             self.path_angle_last - _soft_roc,
                             self.path_angle_last + _soft_roc))
+    # BluePilot: did the soft ROC clip actually limit the path_angle we wanted to send this frame?
+    self.bp_angle_rate_limited = abs(path_angle - _path_angle_pre_roc) > 1e-9
 
 
     # c0 always zero — centering lives on c1 via the trim above (see lateral_curv_ext.py:537).
@@ -394,6 +406,19 @@ class LateralAngleExt:
     self.path_angle_last = path_angle
     self.bp_path_angle_final = path_angle
     self.apply_curvature_last = 0.0
+
+    # BluePilot: would the equivalent curvature (kappa_cmd) have been rate-limited by curvature-mode
+    # logic? Simulate lateral_curv_ext's error-clip + apply_std_steer_angle_limits against a shadow
+    # last, so we can compare angle-mode vs curvature-mode ROC while actually sending path_angle.
+    _curr_curv = -CS.out.yawRate / max(v_ego, 0.1)
+    _equiv_curv_pre = (float(clip(kappa_cmd, _curr_curv - CarControllerParams.CURVATURE_ERROR,
+                                  _curr_curv + CarControllerParams.CURVATURE_ERROR))
+                       if v_ego > 9.0 else kappa_cmd)
+    _equiv_curv_rl = apply_std_steer_angle_limits(_equiv_curv_pre, self.sim_curvature_last, v_ego,
+                                                  CS.out.steeringAngleDeg, CC.latActive, BP_ANGLE_LIMITS)
+    self.bp_curvature_rate_limited = abs(_equiv_curv_rl - _equiv_curv_pre) > 1e-9
+    self.sim_curvature_last = float(_equiv_curv_rl)
+
     ramp_type = 2
 
 

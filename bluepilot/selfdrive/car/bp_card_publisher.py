@@ -15,6 +15,8 @@ def publish_controller_state_bp(CI, pm):
   if hasattr(CI.CC, "lateralUncertainty"):
     cs_bp = structs.ControllerStateBP()
     cs_bp.lateralUncertainty = CI.CC.lateralUncertainty
+    cs_bp.angleRateLimited = getattr(CI.CC, "angleRateLimited", False)
+    cs_bp.curvatureRateLimited = getattr(CI.CC, "curvatureRateLimited", False)
     cs_bp_capnp = convert_to_capnp(cs_bp)
     cs_bp_send = messaging.new_message('controllerStateBP')
     cs_bp_send.valid = True

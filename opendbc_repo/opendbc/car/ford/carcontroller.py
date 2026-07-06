@@ -173,6 +173,11 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
           lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
         self.apply_curvature_last = lat.apply_curvature
         self.lateralUncertainty = lat.lateralUncertainty
+        # BluePilot: rate-limit diagnostics for controllerStateBP. update_angle_strategy sets these on
+        # self (angle mode); curvature mode leaves them False (the path_angle ROC / sim aren't run there).
+        _angle_mode = self.primary_lateral_control == PrimaryLateralControl.angle
+        self.angleRateLimited = getattr(self, 'bp_angle_rate_limited', False) if _angle_mode else False
+        self.curvatureRateLimited = getattr(self, 'bp_curvature_rate_limited', False) if _angle_mode else False
 
         lat_active = CC.latActive
         if self.CP.flags & FordFlags.CANFD:
