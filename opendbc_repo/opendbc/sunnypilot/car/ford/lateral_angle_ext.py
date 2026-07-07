@@ -392,7 +392,7 @@ class LateralAngleExt:
                             self.path_angle_last - _soft_roc,
                             self.path_angle_last + _soft_roc))
     # BluePilot: did the soft ROC clip actually limit the path_angle we wanted to send this frame?
-    self.bp_angle_rate_limited = abs(path_angle - _path_angle_pre_roc) > 1e-9
+    self.bp_angle_rate_limited = bool(abs(path_angle - _path_angle_pre_roc) > 1e-9)
 
 
     # c0 always zero — centering lives on c1 via the trim above (see lateral_curv_ext.py:537).
@@ -416,7 +416,7 @@ class LateralAngleExt:
                        if v_ego > 9.0 else kappa_cmd)
     _equiv_curv_rl = apply_std_steer_angle_limits(_equiv_curv_pre, self.sim_curvature_last, v_ego,
                                                   CS.out.steeringAngleDeg, CC.latActive, BP_ANGLE_LIMITS)
-    self.bp_curvature_rate_limited = abs(_equiv_curv_rl - _equiv_curv_pre) > 1e-9
+    self.bp_curvature_rate_limited = bool(abs(_equiv_curv_rl - _equiv_curv_pre) > 1e-9)
     self.sim_curvature_last = float(_equiv_curv_rl)
 
     ramp_type = 2
