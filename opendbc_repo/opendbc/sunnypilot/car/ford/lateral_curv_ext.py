@@ -55,6 +55,11 @@ LateralResult = namedtuple('LateralResult', [
   'ramp_type',
   'precision_type',
   'lateralUncertainty',
+  # BluePilot: curvature value carried in the wire's curvature field for panda's shadow deviation
+  # check (ford.h, angle mode only). Curvature mode: equals apply_curvature (real actuator value,
+  # no behavior change). Angle mode: the real kappa_cmd (apply_curvature stays 0.0 on the wire;
+  # ford.h zeros this field before it reaches the PSCM once the check passes). See carcontroller.py.
+  'shadow_curvature',
 ])
 
 
@@ -491,6 +496,7 @@ class LateralCurvExt:
       ramp_type=ramp_type,
       precision_type=self.precision_type,
       lateralUncertainty=lateralUncertainty,
+      shadow_curvature=apply_curvature,
     )
 
   def _handle_post_lane_change_transition(self, path_angle, path_offset, desired_curvature_rate):

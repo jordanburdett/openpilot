@@ -323,6 +323,65 @@ static bool curvature_rate_cmd_checks(int desired_curvature_rate, bool steer_con
   return violation;
 }
 
+// BluePilot: angle-primary lateral control (see lateral_angle_ext.py) has no "current path_angle"
+// measurement to check the command against, unlike curvature mode, which compares desired_curvature
+// against angle_meas (measured curvature, derived from yaw rate). Without this, a large deviation
+// between commanded path_angle and the car's ACTUAL curvature -- e.g. from a pothole or driver
+// override kicking the wheel -- would go unchecked (path_angle's own ROC only bounds how fast the
+// *command* changes, not how far it may sit from reality).
+//
+// python sends the real intended curvature (kappa_cmd -- the value path_angle was derived from,
+// see LateralResult.shadow_curvature) in this message's curvature field whenever LatCtl_D2_Rq ==
+// PATH_FOLLOWING_EXTENDED (angle mode's signal to panda; see ford_tx_hook). This function checks
+// that shadow value against angle_meas, exactly like curvature mode's angle-error check.
+//
+// Deliberately narrower than steer_angle_cmd_checks: no rate-of-change enforcement here, and no
+// shared state with curvature mode's desired_angle_last. path_angle already has its own dedicated,
+// tuned ROC (path_angle_cmd_checks / FORD_PATH_ANGLE_LIMITS); imposing a second, curvature-tuned
+// ROC on this shadow value would risk spurious blocks unrelated to path_angle's actual behavior.
+// This is a pure per-frame proximity check: does this frame's steering intent make physical sense
+// given where the car currently is.
+static bool ford_shadow_curvature_error_check(int desired_curvature, bool steer_control_enabled,
+                                               const AngleSteeringLimits limits) {
+  bool violation = false;
+  if (steer_control_enabled && limits.enforce_angle_error &&
+      ((vehicle_speed.values[0] / VEHICLE_SPEED_FACTOR) > limits.angle_error_min_speed)) {
+    int lowest_allowed = angle_meas.min - limits.max_angle_error - 1;
+    int highest_allowed = angle_meas.max + limits.max_angle_error + 1;
+    violation = safety_max_limit_check(desired_curvature, highest_allowed, lowest_allowed);
+  }
+  return violation;
+}
+
+// BluePilot: angle mode only (LatCtl_D2_Rq == PATH_FOLLOWING_EXTENDED). The curvature field carried
+// the real kappa_cmd for ford_shadow_curvature_error_check above; it must never reach the PSCM --
+// path_angle is the actual steering actuator (see lateral_angle_ext.py). Called only after the
+// checks pass (tx would otherwise be true with a real curvature value on the wire). Re-encodes the
+// curvature field to the inactive value and recomputes the message checksum (LatCtlPath_No_Cs) to
+// match, mirroring opendbc/car/ford/fordcan.py::calculate_lat_ctl2_checksum exactly so the PSCM's
+// own application-level checksum validation still passes. curvature_rate/path_angle/path_offset are
+// left untouched (curvature_rate is already 0 in angle mode; path_angle is the real actuator value).
+static void ford_zero_lat_ctl2_curvature(CANPacket_t *msg) {
+  unsigned int raw_curvature_rate = (msg->data[6] << 3) | (msg->data[7] >> 5);
+  unsigned int raw_path_angle = ((msg->data[3] & 0x1FU) << 6) | (msg->data[4] >> 2);
+  unsigned int raw_path_offset = ((msg->data[4] & 0x3U) << 8) | msg->data[5];
+  unsigned int mode_val = (msg->data[0] >> 4) & 0x7U;
+  unsigned int counter = (msg->data[7] >> 1) & 0xFU;
+
+  // Re-encode curvature = FORD_INACTIVE_CURVATURE (physical 0). Byte 3 is shared with path_angle:
+  // top 3 bits = curvature's low bits, bottom 5 bits = path_angle's high bits -- do not overlap,
+  // so masking preserves path_angle exactly.
+  msg->data[2] = (uint8_t)(FORD_INACTIVE_CURVATURE >> 3);
+  msg->data[3] = (uint8_t)((msg->data[3] & 0x1FU) | ((FORD_INACTIVE_CURVATURE & 0x7U) << 5));
+
+  unsigned int checksum = mode_val + counter;
+  checksum += FORD_INACTIVE_CURVATURE + (FORD_INACTIVE_CURVATURE >> 8);
+  checksum += raw_curvature_rate + (raw_curvature_rate >> 8);
+  checksum += raw_path_angle + (raw_path_angle >> 8);
+  checksum += raw_path_offset + (raw_path_offset >> 8);
+  msg->data[1] = (uint8_t)(0xFFU - (checksum & 0xFFU));
+}
+
 
 static void ford_rx_hook(const CANPacket_t *msg) {
   if (msg->bus == FORD_MAIN_BUS) {
@@ -573,7 +632,12 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     static const AngleSteeringLimits FORD_CANFD_STEERING_LIMITS = FORD_LIMITS(true);
 
     // Signal: LatCtl_D2_Rq
-    bool steer_control_enabled = ((msg->data[0] >> 4) & 0x7U) != 0U;
+    unsigned int mode_val = (msg->data[0] >> 4) & 0x7U;
+    bool steer_control_enabled = mode_val != 0U;
+    // BluePilot: mode 2 (PathFollowingExtendedMode) is repurposed as the angle-mode signal from
+    // carcontroller.py -- see ford_shadow_curvature_error_check / ford_zero_lat_ctl2_curvature above.
+    // Only ever true while lat_active is also true (carcontroller only sets mode=2 when lat_active).
+    bool angle_mode = mode_val == 2U;
     unsigned int raw_curvature = (msg->data[2] << 3) | (msg->data[3] >> 5);
     unsigned int raw_curvature_rate = (msg->data[6] << 3) | (msg->data[7] >> 5);
     unsigned int raw_path_angle = ((msg->data[3] & 0x1FU) << 6) | (msg->data[4] >> 2);
@@ -622,11 +686,10 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     int desired_path_angle = raw_path_angle - FORD_INACTIVE_PATH_ANGLE;
     // Convert physical limits to CAN units using DBC scaling: physical = (raw * 0.0005) - 0.5
     // So: raw = (physical + 0.5) / 0.0005 = (physical + 0.5) * 2000
-    // BluePilot: angle mode (curvature == 0) uses path_angle as the actuator and may swing to the
-    // full DBC range; curvature mode (curvature != 0) keeps the tight 0.25 cap because path_angle
-    // there amplifies wound-up curvature. Sentinel: curvature is never exactly 0 in curvature mode.
-    float path_angle_min_phys = (desired_curvature == 0) ? FORD_DBC_PATH_ANGLE_MIN : FORD_PATH_ANGLE_MIN;
-    float path_angle_max_phys = (desired_curvature == 0) ? FORD_DBC_PATH_ANGLE_MAX : FORD_PATH_ANGLE_MAX;
+    // BluePilot: angle mode uses path_angle as the actuator and may swing to the full DBC range;
+    // curvature mode keeps the tight 0.25 cap because path_angle there amplifies wound-up curvature.
+    float path_angle_min_phys = angle_mode ? FORD_DBC_PATH_ANGLE_MIN : FORD_PATH_ANGLE_MIN;
+    float path_angle_max_phys = angle_mode ? FORD_DBC_PATH_ANGLE_MAX : FORD_PATH_ANGLE_MAX;
     int path_angle_min_can = (int)(path_angle_min_phys * FORD_PATH_ANGLE_LIMITS.angle_deg_to_can);
     int path_angle_max_can = (int)(path_angle_max_phys * FORD_PATH_ANGLE_LIMITS.angle_deg_to_can);
     violation |= (desired_path_angle < path_angle_min_can) || (desired_path_angle > path_angle_max_can);
@@ -637,15 +700,14 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     }
 
     // Check angle error and steer_control_enabled for curvature
-    // BluePilot: angle-primary mode holds the curvature signal at exactly 0 (inactive) while
-    // path_angle is the steering actuator; curvature mode never commands exactly 0 (it is
-    // continuously rate-limited and tracks measured). Still run the check so desired_angle_last
-    // stays in sync for clean angle<->curvature transitions, but only enforce its result when
-    // curvature != 0, so the unused curvature field can't block angle mode. path_angle keeps its
-    // own value + ROC checks below.
-    bool curvature_violation = steer_angle_cmd_checks(desired_curvature, steer_control_enabled, FORD_CANFD_STEERING_LIMITS);
-    if (desired_curvature != 0) {
-      violation |= curvature_violation;
+    // BluePilot: angle mode -- desired_curvature carries the real kappa_cmd shadow value (see
+    // ford_shadow_curvature_error_check above); run the deviation-only check, no ROC, no shared
+    // state with curvature mode. Curvature mode (angle_mode false) -- unchanged, full ROC+error
+    // check against the real actuator value, exactly as before this feature existed.
+    if (angle_mode) {
+      violation |= ford_shadow_curvature_error_check(desired_curvature, steer_control_enabled, FORD_CANFD_STEERING_LIMITS);
+    } else {
+      violation |= steer_angle_cmd_checks(desired_curvature, steer_control_enabled, FORD_CANFD_STEERING_LIMITS);
     }
     // End BluePilot
     if (test) {
@@ -684,6 +746,16 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
 
     if (violation) {
       tx = false;
+    } else if (angle_mode) {
+      // BluePilot: checks passed with a real kappa_cmd in the curvature field (for the deviation
+      // check above) -- scrub it before it reaches the PSCM. path_angle is the real actuator.
+      // ford_tx_hook's `msg` is `const CANPacket_t *` by framework convention (no other safety mode
+      // mutates a tx packet), but the underlying struct is can_send()'s own mutable CANPacket_t --
+      // never itself declared const -- so writing through a cast-away-const alias here is
+      // well-defined C, not the actual const-object case. can_send() (can_common.h) queues this
+      // same struct for transmission immediately after tx_hook returns true, so the mutation here
+      // is exactly what reaches the physical CAN bus.
+      ford_zero_lat_ctl2_curvature((CANPacket_t *)msg);
     }
     if(test) {
       FORD_SAFETY_DBG("CANFD Out - final: violation: %d\n", (int)violation);

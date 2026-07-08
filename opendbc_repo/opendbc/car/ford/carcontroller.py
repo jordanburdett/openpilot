@@ -181,13 +181,25 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
 
         lat_active = CC.latActive
         if self.CP.flags & FordFlags.CANFD:
-          mode = 1 if lat_active else 0
+          # BluePilot: mode 2 (PathFollowingExtendedMode) signals angle mode to ford.h. Testing
+          # showed the PSCM treats it identically to mode 1 -- Ford left it unused, so we repurpose
+          # it as a flag. ford.h uses it to (a) run a shadow deviation check on the curvature field
+          # below (real kappa_cmd, not the wire's 0) against measured current curvature, protecting
+          # against path_angle commanding a large steering intent while actual curvature has
+          # diverged (pothole, driver override), and (b) zero that field (recomputing the checksum)
+          # before it reaches the PSCM once the check passes. See ford.h FORD_LateralMotionControl2.
+          mode = (2 if _angle_mode else 1) if lat_active else 0
           counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
           can_sends.append(fordcan_ext.create_lat_ctl2_msg(
             self.packer, self.CAN, mode, lat.ramp_type, lat.precision_type,
-            -lat.path_offset, -lat.path_angle, -lat.apply_curvature, -lat.curvature_rate, counter
+            -lat.path_offset, -lat.path_angle, -lat.shadow_curvature, -lat.curvature_rate, counter
           ))
         else:
+          # BluePilot: LatCtl_D_Rq (non-CANFD) has no unused mode value (2/3 are real Ford
+          # InterventionLeft/Right behaviors) and this message carries no checksum to recompute, so
+          # the mode-2 shadow-check/zero mechanism above does not apply here. Angle mode on non-CANFD
+          # Fords keeps sending 0 (lat.apply_curvature) and relies solely on the desired_curvature==0
+          # bypass sentinel in ford.h -- no independent current-curvature deviation check.
           can_sends.append(fordcan_ext.create_lat_ctl_msg(
             self.packer, self.CAN, lat_active, lat.ramp_type, lat.precision_type,
             -lat.path_offset, -lat.path_angle, -lat.apply_curvature, -lat.curvature_rate
