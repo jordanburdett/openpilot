@@ -263,7 +263,6 @@ class LateralAngleExt:
         ramp_type=0,
         precision_type=1,
         lateralUncertainty=0.0,
-        shadow_curvature=0.0,
       )
 
     self.precision_type = 1
@@ -431,8 +430,4 @@ class LateralAngleExt:
       ramp_type=ramp_type,
       precision_type=self.precision_type,
       lateralUncertainty=lateral_uncertainty,
-      # BluePilot: real steering intent (pre-gain, pre-ROC kappa_cmd) for panda's shadow deviation
-      # check. Not the wire's curvature value (apply_curvature stays 0.0) -- see carcontroller.py
-      # and ford.h's angle-mode handling of LatCtl_D2_Rq == PathFollowingExtendedMode.
-      shadow_curvature=float(kappa_cmd),
     )
