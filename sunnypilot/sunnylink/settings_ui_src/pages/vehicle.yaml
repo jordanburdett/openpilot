@@ -50,6 +50,10 @@ sections:
     widget: toggle
     title: '[Visuals] Minimal Driving View'
     description: Disable camera feed & only show lane lines and model path.
+  - key: BPRainbowLines
+    widget: toggle
+    title: '[Visuals] Rainbow Lane Lines'
+    description: Inner lane lines become rainbow colored when longitudinal control is active.
   - key: ShowBlindspotOverlay
     widget: toggle
     title: '[Visuals] Show Blindspot Overlay'

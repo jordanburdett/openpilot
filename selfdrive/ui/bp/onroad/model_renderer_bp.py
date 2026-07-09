@@ -40,6 +40,7 @@ class ModelRendererBP(ModelRenderer):
   def __init__(self):
     super().__init__()
     self._bp_params = Params()
+    self._rainbow_v = 1.0
 
     # BluePilot: Replace SP chevron metrics with BP version (horizontal boxed layout)
     self.chevron_metrics = ChevronMetricsBP()
@@ -58,6 +59,7 @@ class ModelRendererBP(ModelRenderer):
     self.ford_overlay_enabled = self._bp_params.get_bool("FordPrefShowRadarLeadOverlay")
     self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
     self._hide_camera_view = self._bp_params.get_bool("BPHideCameraView")
+    self._rainbow_lane_lines = self._bp_params.get_bool("BPRainbowLines")
     self._transform_dirty = True
 
     # BluePilot: Lead position smoothing filters to reduce radar jitter
@@ -79,11 +81,12 @@ class ModelRendererBP(ModelRenderer):
 
     self.ford_overlay_enabled = self._bp_params.get_bool("FordPrefShowRadarLeadOverlay")
     self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
+    self._rainbow_lane_lines = self._bp_params.get_bool("BPRainbowLines")
 
   def _render(self, rect: rl.Rectangle):
     sm = ui_state.sm
 
-    if ui_state.rainbow_path:
+    if ui_state.rainbow_path or self._rainbow_lane_lines:
       self._rainbow_v = np.clip(sm['carState'].vEgo, 2.5, 35) / 30
 
     if (sm.recv_frame["liveCalibration"] < ui_state.started_frame or
@@ -300,6 +303,7 @@ class ModelRendererBP(ModelRenderer):
 
   def _draw_enhanced_lane_lines(self):
     """Draw enhanced lane lines with glow effects and confidence-based brightness."""
+    rainbow_lane_lines_active = self._rainbow_lane_lines_active(ui_state.sm)
     for i, lane_line in enumerate(self._lane_lines):
       if lane_line.projected_points.size == 0 or self._lane_line_probs[i] < 0.4:
         continue
@@ -309,10 +313,13 @@ class ModelRendererBP(ModelRenderer):
       if not is_current_lane:
         base_alpha *= 0.4
 
-      base_color = self._get_ll_color(float(self._lane_line_probs[i]), is_current_lane)
-      scaled_alpha = int(base_alpha * 255)
-      color = rl.Color(base_color.r, base_color.g, base_color.b, scaled_alpha)
-      draw_polygon(self._rect, lane_line.projected_points, color)
+      if rainbow_lane_lines_active and is_current_lane:
+        draw_rainbow_polygon(self._rect, lane_line.projected_points, rainbow_v=self._rainbow_v, alpha=float(base_alpha * 0.75))
+      else:
+        base_color = self._get_ll_color(float(self._lane_line_probs[i]), is_current_lane)
+        scaled_alpha = int(base_alpha * 255)
+        color = rl.Color(base_color.r, base_color.g, base_color.b, scaled_alpha)
+        draw_polygon(self._rect, lane_line.projected_points, color)
 
     self._draw_lane_glow_effects()
 
@@ -330,11 +337,14 @@ class ModelRendererBP(ModelRenderer):
 
     Reduced from 3 layers to 1 for performance (saves ~8 draw_polygon + _expand_polygon calls/frame).
     """
+    rainbow_lane_lines_active = self._rainbow_lane_lines_active(ui_state.sm)
     for i, lane_line in enumerate(self._lane_lines):
       if lane_line.projected_points.size == 0 or self._lane_line_probs[i] < 0.4:
         continue
       base_alpha = np.clip(self._lane_line_probs[i] * 0.8, 0.3, 0.8)
       is_current_lane = (i == 1 or i == 2)
+      if rainbow_lane_lines_active and is_current_lane:
+        continue
       if not is_current_lane:
         base_alpha *= 0.4
       base_color = self._get_ll_color(float(self._lane_line_probs[i]), is_current_lane)
@@ -343,6 +353,16 @@ class ModelRendererBP(ModelRenderer):
         alpha = int(base_alpha * 0.12 * 255)
         color = rl.Color(base_color.r, base_color.g, base_color.b, alpha)
         draw_polygon(self._rect, expanded_points, color)
+
+  def _rainbow_lane_lines_active(self, sm) -> bool:
+    """Return true when inner lane lines should use the rainbow shader."""
+    if not self._rainbow_lane_lines or self._disable_lane_line_status_color:
+      return False
+
+    if sm.valid.get('carControl', False) and sm['carControl'].longActive:
+      return True
+
+    return ui_state.status in (UIStatus.ENGAGED, UIStatus.LONG_ONLY)
 
   def _draw_road_edge_glow_effects(self):
     """Draw single glow layer around road edges.

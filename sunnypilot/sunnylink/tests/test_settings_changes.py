@@ -153,6 +153,19 @@ class TestTestManeuversSection:
       "test_maneuvers must gate ShowAdvancedControls via enablement"
 
 
+class TestBluePilotVehicleVisuals:
+  def test_rainbow_lane_lines_ordered_with_visual_toggles(self, schema):
+    items = schema["vehicle_settings"]["ford"]["items"]
+    keys = [item["key"] for item in items]
+    assert "BPRainbowLines" in keys
+    assert keys.index("BPHideCameraView") < keys.index("BPRainbowLines") < keys.index("ShowBlindspotOverlay")
+
+    item = _find_item(schema, "BPRainbowLines")
+    assert item is not None
+    assert item["title"] == "[Visuals] Rainbow Lane Lines"
+    assert item["description"] == "Inner lane lines become rainbow colored when longitudinal control is active."
+
+
 class TestValidator:
   def test_validator_accepts_real_json(self):
     """settings_ui.json validates against settings_ui.schema.json."""
