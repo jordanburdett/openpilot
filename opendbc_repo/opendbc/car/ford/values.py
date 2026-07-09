@@ -177,7 +177,7 @@ class CAR(Platforms):
   )
   FORD_MONDEO_MK5 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford Mondeo 2014-2022", "Adaptive Cruise Control with Lane Centering")],
-    CarSpecs(mass=1550, wheelbase=2.85, steerRatio=16.0),
+    CarSpecs(mass=1550, wheelbase=2.85, steerRatio=15.3),
   )
   FORD_MAVERICK_MK1 = FordPlatformConfig(
     [
