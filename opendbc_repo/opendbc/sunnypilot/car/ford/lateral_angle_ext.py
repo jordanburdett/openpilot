@@ -69,13 +69,19 @@ _VLT_V_HIGH_MS  = 55.0 * 0.44704    # 55 mph — no extra lookahead at or above 
 _VLT_KAPPA_FULL  = 0.005             # 1/m — full extra lookahead below this curvature (200m+ radius)
 _VLT_KAPPA_TAPER = 0.020             # 1/m — no extra lookahead above this curvature (50m radius)
 
-# Rate cap on path_angle magnitude DECREASE during PSCM LimitReached (rad/frame at 50 Hz = 0.20 rad/s).
+# Rate cap on path_angle magnitude DECREASE during PSCM LimitReached (rad/call = 0.40 rad/s).
 # Both model and planner naturally drop path_angle ~0.36 rad/s at a sharp 90° apex, while the PSCM is
 # physically pinned and cannot execute the rapidly falling desired angle. The resulting actual-vs-desired
 # gap (up to 47° observed) causes a snap correction the moment the PSCM is released. This cap limits
 # the desired-angle drop rate to what the PSCM can reasonably track, at the cost of holding the car
-# slightly more in the curve during saturation. 0.004/frame ≈ 12–17 m unwind distance at 34–44 kph.
-_PSCM_SAT_UNWIND_RATE = 0.004       # rad/frame
+# slightly more in the curve during saturation.
+# BluePilot: this strategy runs once per STEER_STEP (CarControllerParams.STEER_STEP=5), i.e. once
+# every 5th 100Hz control tick = 20Hz, not every tick. The original 0.004 rad/call value (and its
+# "50Hz" comment, corrected above) was authored 2026-05-11 on bp-sid-simple, which had already
+# switched STEER_STEP 5->1 (true 100Hz) on 2026-04-22 -- so it was tuned at 100Hz real cadence
+# even though its own comment mistakenly said 50Hz. Scaled x5 here to restore the same real-world
+# 0.40 rad/s (23 deg/s) unwind rate on this branch's actual 20Hz cadence.
+_PSCM_SAT_UNWIND_RATE = 0.02        # rad/call (0.02 * 20Hz = 0.40 rad/s)
 
 # Curvature gate for the centering trim (LC_PID).
 # In tight curves, modelV2.position.y is dominated by road geometry (the car IS in the turn),
@@ -386,7 +392,13 @@ class LateralAngleExt:
     # Soft ROC limit — unconditional, slightly tighter than ford.h, applied before the
     # hardware bypass in ford.h is re-enabled.  Lets us observe whether the limit would
     # suppress control and tune it, while the PSCM still receives the clipped value.
-    _soft_roc = float(interp(v_ego, [9., 10., 15., 25.], [0.011, 0.011, 0.0085, 0.0018]))
+    # BluePilot: this strategy runs once per STEER_STEP (CarControllerParams.STEER_STEP=5), i.e.
+    # once every 5th 100Hz control tick = 20Hz, not every tick -- ported "verbatim from bp-sid-simple"
+    # (2026-06-13), which runs STEER_STEP=1 (true 100Hz, switched 2026-04-22). The y-values below are
+    # scaled x5 from the original [0.011, 0.011, 0.0085, 0.0018] to restore the same real-world rate
+    # (63/63/49/10 deg/s at v=9-10/15/25) on this branch's actual 20Hz cadence. See ford.h's
+    # FORD_PATH_ANGLE_LIMITS, which must mirror this scaling (x1.02 looser) to stay a true backstop.
+    _soft_roc = float(interp(v_ego, [9., 10., 15., 25.], [0.055, 0.055, 0.0425, 0.009]))
     _path_angle_pre_roc = path_angle
     path_angle = float(clip(path_angle,
                             self.path_angle_last - _soft_roc,

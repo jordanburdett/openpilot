@@ -135,21 +135,28 @@ static const AngleSteeringLimits FORD_PATH_ANGLE_LIMITS = {
   // 0.0005
   .angle_deg_to_can = 2000,        // 1 / (2e-5) rad to can
   .max_angle_error = 4,           // 0.002 * FORD_STEERING_LIMITS.angle_deg_to_can
-  // Mirror lateral_angle_ext.py _soft_roc: interp(v_ego, [9,10,15,25], [0.011,0.011,0.0085,0.0018])
-  // rad/frame, scaled x1.02 so panda is 2% LOOSER than the Python control and never blocks LMC2.
-  // lookup_t is fixed at 3 points; Python's 9 & 10 m/s nodes are both 0.011 (flat top), so {10,15,25}
+  // Mirror lateral_angle_ext.py _soft_roc: interp(v_ego, [9,10,15,25], [0.055,0.055,0.0425,0.009])
+  // rad/call, scaled x1.02 so panda is 2% LOOSER than the Python control and never blocks LMC2.
+  // lookup_t is fixed at 3 points; Python's 9 & 10 m/s nodes are both 0.055 (flat top), so {10,15,25}
   // reproduces the curve exactly and speeds <10 clamp to the first point. The +1 CAN unit and the
   // speed-1 fudge in path_angle_cmd_checks add extra headroom on top of the 2%.
+  // BluePilot: LMC2 is only sent once per CarControllerParams.STEER_STEP (5) = 20Hz, not 100Hz --
+  // _soft_roc's y-values (and this mirror) are per-call, not per-100Hz-tick; see lateral_angle_ext.py.
   .angle_rate_up_lookup = {
     .x = {10., 15., 25.},
-    .y = {0.01122, 0.00867, 0.001836}
+    .y = {0.0561, 0.04335, 0.00918}
   },
   .angle_rate_down_lookup = {
     .x = {10., 15., 25.},
-    .y = {0.01122, 0.00867, 0.001836}
+    .y = {0.0561, 0.04335, 0.00918}
   },
   .angle_error_min_speed = 9.9,   // m/s
-  .frequency = 100U,              // Hz
+  .frequency = 20U,               // Hz -- LateralMotionControl/LateralMotionControl2 @ 20Hz (matches
+                                  // actual STEER_STEP=5 cadence; was 100U, a stale leftover from an
+                                  // abandoned 100Hz-cadence experiment. Currently unread by
+                                  // path_angle_cmd_checks (only angle_rate_up/down_lookup matter),
+                                  // but corrected for consistency/documentation and in case a future
+                                  // rt_angle_rate_limit_check() wiring starts consuming it.
 
   .enforce_angle_error = true,
   .inactive_angle_is_zero = true,
