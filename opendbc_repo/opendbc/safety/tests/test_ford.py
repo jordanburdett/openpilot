@@ -167,6 +167,20 @@ class TestFordSafetyBase(common.CarSafetyTest):
     }
     return self.packer.make_can_msg_safety("Lane_Assist_Data1", 0, values)
 
+  # BluePilot: angle_mode_engaged + shadow_curvature, packed into Lane_Assist_Data1's unused bits
+  # (byte4 bit0, bytes 5-6 -- see fordcan_ext.py's create_lka_msg / ford.h's FORD_Lane_Assist_Data1
+  # tx_hook check). Sent by openpilot itself, so this goes through _tx, not _rx.
+  def _lka_bp_status_msg(self, angle_mode_engaged: bool, shadow_curvature: float, action: int = 0):
+    values = {"LkaActvStats_D2_Req": action}
+    addr, dat, bus = self.packer.make_can_msg("Lane_Assist_Data1", 0, values)
+    dat = bytearray(dat)
+    shadow_curvature_raw = int(round(shadow_curvature / 1e-6))
+    shadow_curvature_raw = max(-32768, min(32767, shadow_curvature_raw)) & 0xFFFF
+    dat[4] |= 1 if angle_mode_engaged else 0
+    dat[5] = (shadow_curvature_raw >> 8) & 0xFF
+    dat[6] = shadow_curvature_raw & 0xFF
+    return libsafety_py.make_CANPacket(addr, bus, bytes(dat))
+
   # LCA command
   def _lat_ctl_msg(self, enabled: bool, path_offset: float, path_angle: float, curvature: float, curvature_rate: float):
     if self.STEER_MESSAGE == MSG_LateralMotionControl:
@@ -359,6 +373,71 @@ class TestFordSafetyBase(common.CarSafetyTest):
             curvature_offset = small_curvature if initial_curvature == 0 else 0
             self._set_prev_desired_angle(sign * (curvature_offset + initial_curvature))
             self.assertEqual(should_tx, self._tx(self._lat_ctl_msg(True, 0, 0, sign * (curvature_offset + desired_curvature), 0)))
+
+  def test_angle_mode_corroboration_gate(self):
+    """LMC/LMC2 with the angle-mode sentinel (desired_curvature == 0) must be corroborated by
+    Lane_Assist_Data1's angle_mode_engaged bit -- a mismatch (sentinel says angle mode, the
+    independently-signaled flag disagrees) must block.
+
+    path_angle is held at a small nonzero value throughout (not 0) so the pre-existing
+    "reset detected" bypass latch (desired_curvature == 0 && desired_path_angle == 0) -- meant for
+    the human-turn/standstill ramp-up scenario -- doesn't mask this check's own result."""
+    self.safety.set_controls_allowed(True)
+    for speed in (5.0, 15.0):
+      self._reset_curvature_measurement(0, speed)
+      for angle_mode_engaged in (True, False):
+        self._tx(self._lka_bp_status_msg(angle_mode_engaged, 0.0))
+        with self.subTest(speed=speed, angle_mode_engaged=angle_mode_engaged):
+          self.assertEqual(angle_mode_engaged, self._tx(self._lat_ctl_msg(True, 0, 0.01, 0, 0)))
+
+  def test_curvature_mode_unaffected_by_angle_mode_flag(self):
+    """Real (nonzero) curvature commands are self-evidently curvature mode by their own content --
+    they must never be gated by Lane_Assist_Data1's angle_mode_engaged, regardless of its value."""
+    self.safety.set_controls_allowed(True)
+    speed = 15.0
+    curvature = 0.01
+    self._reset_curvature_measurement(curvature, speed)
+    for angle_mode_engaged in (True, False):
+      self._set_prev_desired_angle(curvature)
+      self._tx(self._lka_bp_status_msg(angle_mode_engaged, 0.0))
+      with self.subTest(angle_mode_engaged=angle_mode_engaged):
+        self.assertTrue(self._tx(self._lat_ctl_msg(True, 0, 0, curvature, 0)))
+
+  def test_shadow_curvature_deviation_check(self):
+    """Angle mode's shadow_curvature must be checked against measured curvature (angle_meas),
+    gated the same way as curvature mode's own check: enforce_angle_error + CURVATURE_ERROR_MIN_SPEED.
+    Mirrors test_curvature_rate_limits' up/down structure but for the deviation-only path.
+    path_angle held at a small nonzero value -- see test_angle_mode_corroboration_gate docstring."""
+    self.safety.set_controls_allowed(True)
+    for speed in (self.CURVATURE_ERROR_MIN_SPEED - 1, self.CURVATURE_ERROR_MIN_SPEED + 1):
+      limit_enforced = speed > self.CURVATURE_ERROR_MIN_SPEED
+      measured_curvature = 0.005
+      self._reset_curvature_measurement(measured_curvature, speed)
+
+      self._tx(self._lka_bp_status_msg(True, measured_curvature))
+      with self.subTest(speed=speed, case="matches_measured"):
+        self.assertTrue(self._tx(self._lat_ctl_msg(True, 0, 0.01, 0, 0)))
+
+      large_deviation = measured_curvature + (self.MAX_CURVATURE_ERROR * 5)
+      self._tx(self._lka_bp_status_msg(True, large_deviation))
+      with self.subTest(speed=speed, case="large_deviation"):
+        self.assertEqual(not limit_enforced, self._tx(self._lat_ctl_msg(True, 0, 0.01, 0, 0)))
+
+  def test_shadow_curvature_no_rate_limit(self):
+    """shadow_curvature must NOT be rate-of-change limited -- only path_angle's own ROC
+    (path_angle_cmd_checks) applies in angle mode. A large frame-to-frame jump in shadow_curvature,
+    while it stays within deviation tolerance of a correspondingly-updated measured curvature, must
+    not block. Regression test for a real bug: substituting shadow_curvature into
+    steer_angle_cmd_checks (which does both ROC and deviation) caused spurious blocks from
+    shadow_curvature's own frame-to-frame movement, unrelated to path_angle's actual behavior.
+    path_angle held at a small nonzero value -- see test_angle_mode_corroboration_gate docstring."""
+    self.safety.set_controls_allowed(True)
+    speed = self.CURVATURE_ERROR_MIN_SPEED + 1
+    for curvature in (0.015, -0.015, 0.018, -0.018, 0.001, -0.019):
+      self._reset_curvature_measurement(curvature, speed)
+      self._tx(self._lka_bp_status_msg(True, curvature))
+      with self.subTest(curvature=curvature):
+        self.assertTrue(self._tx(self._lat_ctl_msg(True, 0, 0.01, 0, 0)))
 
   def test_prevent_lkas_action(self):
     self.safety.set_controls_allowed(1)

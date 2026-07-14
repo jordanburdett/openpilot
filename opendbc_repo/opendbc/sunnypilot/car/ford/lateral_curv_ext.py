@@ -60,17 +60,26 @@ LateralResult = namedtuple('LateralResult', [
 
 def apply_ford_curvature_limits_ext(apply_curvature, apply_curvature_last, current_curvature,
                                      v_ego_raw, steering_angle, lat_active, CP):
-  """Extended version of apply_ford_curvature_limits that returns (apply_curvature, max_curvature).
+  """Extended version of apply_ford_curvature_limits that returns
+  (apply_curvature, max_curvature, curvature_deviation_limited).
 
   The max_curvature value is used by _calculate_lateral_uncertainty() for the steering
   torque bar visualization. Stock version returns only apply_curvature.
+
+  curvature_deviation_limited (BluePilot): True when the current_curvature +- CURVATURE_ERROR
+  clip below actually constrained the commanded curvature this frame -- i.e. the desired
+  maneuver was limited by deviation from measured current curvature, not by rate-of-change
+  (apply_std_steer_angle_limits below is a separate limiter with its own telemetry).
   """
   max_curvature = 1  # large initial value
+  curvature_deviation_limited = False
 
   # No blending at low speed due to lack of torque wind-up and inaccurate current curvature
   if v_ego_raw > 9:
+    apply_curvature_pre_error_clip = apply_curvature
     apply_curvature = np.clip(apply_curvature, current_curvature - CarControllerParams.CURVATURE_ERROR,
                               current_curvature + CarControllerParams.CURVATURE_ERROR)
+    curvature_deviation_limited = bool(abs(apply_curvature - apply_curvature_pre_error_clip) > 1e-9)
     max_curvature = abs(current_curvature) + CarControllerParams.CURVATURE_ERROR
 
   # Curvature rate limit after driver torque limit (same inputs/order as apply_ford_curvature_limits)
@@ -92,7 +101,7 @@ def apply_ford_curvature_limits_ext(apply_curvature, apply_curvature_last, curre
     apply_curvature = float(np.clip(apply_curvature, -curvature_accel_limit, curvature_accel_limit))
     max_curvature = np.minimum(max_curvature, abs(curvature_accel_limit))
 
-  return apply_curvature, max_curvature
+  return apply_curvature, max_curvature, curvature_deviation_limited
 
 
 class LateralCurvExt:
@@ -124,6 +133,8 @@ class LateralCurvExt:
     # Precision/ramp control
     self.precision_type = 1  # 1=Precise, 0=Comfortable
     self.lateralUncertainty = 0.0
+    # BluePilot: deviation-from-current-curvature telemetry (see carcontroller.py)
+    self.bp_curvature_deviation_limited = False
 
     # Predicted curvature blending
     self.curvature_lookup_time = 0.2  # seconds into the future for curvature extraction
@@ -262,6 +273,7 @@ class LateralCurvExt:
     reset_steering = 0
     ramp_type = 2
     lateralUncertainty = 0.0
+    curvature_deviation_limited = False
 
     if CC.latActive:
       self.precision_type = 1
@@ -328,7 +340,7 @@ class LateralCurvExt:
         self.curvature_rate_deque.clear()
 
       # Apply curvature limits (extended version returning max_curvature)
-      apply_curvature, max_curvature = apply_ford_curvature_limits_ext(
+      apply_curvature, max_curvature, curvature_deviation_limited = apply_ford_curvature_limits_ext(
         requested_curvature, apply_curvature_last, current_curvature,
         CS.out.vEgoRaw, 0, CC.latActive, CP)
 
@@ -482,6 +494,9 @@ class LateralCurvExt:
     self.curvature_rate_last = desired_curvature_rate
     self.path_offset_last = path_offset
     self.path_angle_last = path_angle
+    # BluePilot: did the current_curvature +- CURVATURE_ERROR clip constrain the commanded
+    # curvature this frame (deviation from measured, not rate-of-change)? See carcontroller.py.
+    self.bp_curvature_deviation_limited = curvature_deviation_limited
 
     return LateralResult(
       apply_curvature=apply_curvature,

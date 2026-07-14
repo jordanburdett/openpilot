@@ -470,6 +470,11 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   # BluePilot: lateral rate-limit diagnostics (troubleshooting)
   angleRateLimited     @1 :Bool;  # angle mode: the path_angle soft-ROC clip actually bit this frame
   curvatureRateLimited @2 :Bool;  # would the equivalent curvature have been rate-limited by lateral_curv_ext (sim)
+  # BluePilot: did the current_curvature +- CURVATURE_ERROR clip constrain the commanded curvature
+  # this frame (deviation from measured, not rate-of-change)? Set by whichever strategy is active
+  # (lateral_curv_ext.py or lateral_angle_ext.py) -- tells you what limited a maneuver: ROC
+  # (angleRateLimited) vs deviation from current curvature (this).
+  curvatureDeviationLimited @3 :Bool;
 }
 
 struct CarStateBP @0xb057204d7deadf3f {

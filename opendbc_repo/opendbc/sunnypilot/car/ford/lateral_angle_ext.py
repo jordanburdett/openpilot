@@ -7,18 +7,14 @@ PSCM short lookahead d_ref and y ≈ ½κ x² ⇒ path_angle = ½ κ d_ref (see
 blended with ``actuators.curvature`` per ``FordPathAngleBlendRatio`` (0 = planner only,
 1 = model only).
 
-**c0 (path_offset) is always zero on the wire.** Lane centering is delivered as a small,
-clipped additive trim onto path_angle, mirroring ``lateral_curv_ext`` (which also zeros c0 to
-avoid the c0/c1 sign-conflict failure mode). The trim is built from model y at
-``path_offset_lookup_time`` blended with laneline center, fed through the curv-mode
-``LC_PID_controller``, speed-gated, ROC-limited, and hard-clipped to ``FordPathAngleTrimMax``
-(rad, default 0.3) so it can never dominate the κ-derived command. Toggled by the
-``FordPrefAnglePathOffsetEnable`` param (UI label TBD-renamed in a follow-up cleanup).
+**c0 (path_offset) is always zero on the wire, unconditionally.** Angle mode has no centering
+trim -- an earlier port attempt piped a small additive trim onto path_angle through the
+curv-mode ``LC_PID_controller``, but it never actually tracked lane center correctly in this
+mode and was removed; only the DBC-required zero c0 remains.
 """
 import numpy as np
 from numpy import clip, interp
 
-from opendbc.car import DT_CTRL
 from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.ford.values import CAR, CarControllerParams
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralResult
@@ -83,34 +79,6 @@ _VLT_KAPPA_TAPER = 0.020             # 1/m — no extra lookahead above this cur
 # 0.40 rad/s (23 deg/s) unwind rate on this branch's actual 20Hz cadence.
 _PSCM_SAT_UNWIND_RATE = 0.02        # rad/call (0.02 * 20Hz = 0.40 rad/s)
 
-# Curvature gate for the centering trim (LC_PID).
-# In tight curves, modelV2.position.y is dominated by road geometry (the car IS in the turn),
-# not by a lane-centre deviation — the PID trim pushes the car further into the curve and adds
-# asymmetric overshoot (left curves worse than right due to DBC limit asymmetry: -0.5 vs +0.5235).
-# Scale trim linearly from 1.0 at gentle curves to 0.0 at sharp ones.
-_TRIM_CURV_GATE_LOW  = 0.006   # 1/m — trim fully active below this (~167 m radius)
-_TRIM_CURV_GATE_HIGH = 0.012   # 1/m — trim zeroed above this (~83 m radius)
-
-# High-curvature gain attenuation.
-# Left curves on route 00000124 show sustained desiredCurvature = -0.022 to -0.025 for 3+ seconds
-# after the apex (secondary tightening), accumulating more total lateral displacement than matching
-# right curves (peak dc -0.024, duration ~1s). With trim=0, b=0, VLT=0, the only remaining lever
-# is the gain itself. Scale from 1.0 at gentle curves to a user-configurable floor at sharp ones.
-_CURV_GAIN_SCALE_LOW  = 0.010  # 1/m — full gain below this (~100 m radius)
-_CURV_GAIN_SCALE_HIGH = 0.025  # 1/m — user minimum gain applied at or above this (~40 m radius)
-
-# Straight-line ROC limit: suppress model chatter on straights and at very low speed.
-# Only active when both current kappa_cmd and the VLT-base lookahead curvature are below this.
-# Above the threshold we're entering a curve and want full, unclipped authority.
-_STRAIGHT_ROC_KAPPA_MAX = 0.008  # 1/m (~125 m radius)
-
-# Gain calibration: conditions required for stable curve-following data collection.
-# isStableCurveFollow is True only after all four conditions hold for _STABLE_FRAMES_MIN consecutive frames.
-_STABLE_KAPPA_MIN      = 0.002   # rad/m — minimum curvature (~500 m radius) to qualify as "on a curve"
-_STABLE_KAPPA_RATE_MAX = 0.0003  # rad/m/frame — max per-frame kappa change for "steady" curvature
-_STABLE_SPEED_MIN      = 5.0     # m/s (~11 mph) — minimum speed for meaningful yaw-rate signal
-_STABLE_FRAMES_MIN     = 30      # frames (0.3 s at 100 Hz) of sustained conditions before flag goes True
-
 
 def pscm_d_ref_m(v_ego_ms: float) -> float:
   v = max(float(v_ego_ms), 0.0)
@@ -139,54 +107,18 @@ class LateralAngleExt:
     self.high_speed_curv_factor = 1.0
     self.bp_low_speed_curv_factor = 1.0
     self.bp_high_speed_curv_factor = 1.0
-    # Gain telemetry stubs — kept for bp_card_publisher compatibility; not used in the formula.
-    self.path_angle_gain_mult_low = 1.0
-    self.path_angle_gain_mult_high = 1.0
-    self.path_angle_equiv_gain_low = 0.0
-    self.path_angle_equiv_gain_high = 0.0
-    self.bp_path_angle_equiv_gain = 0.0
     # Telemetry: variable curvature lookup time used this frame (s)
     self.bp_curvature_lookup_time = _VLT_T_EXTRA_MAX + 0.3725  # warm start at ~0.5s
-    # Telemetry: unconditional ROC bounds (no curvature gate) for PlotJuggler ROC tuning
-    self.bp_roc_path_angle_max = 0.0
-    self.bp_roc_path_angle_min = 0.0
-    # Telemetry: path_angle after ROC smoothing but before _in_hard_sat block; compare with
-    # bp_path_angle_final to see when and how much the hard-sat clamp is suppressing the command.
-    self.bp_path_angle_pre_sat = 0.0
-    # ford.h ROC simulation: running estimate of what ford.h would have accepted if rate-of-change
-    # limiting were enabled in panda. Tracks a shadow "last accepted" value advancing at ford.h's
-    # per-frame ROC limit so the band [sim_max, sim_min] drifts away from the actual signal when
-    # we send jumps larger than the firmware allows. Reset when lat control disengages.
-    self._ford_h_sim_last = 0.0
-    self.bp_ford_h_sim_max = 0.0
-    self.bp_ford_h_sim_min = 0.0
-    self.bp_ford_h_violation_high = False
-    self.bp_ford_h_violation_low  = False
-    # Gain calibration telemetry — see isStableCurveFollow in custom.capnp
-    self._kappa_cmd_last_stable = 0.0      # kappa_cmd from previous frame (for per-frame rate check)
-    self._stable_curve_counter = 0         # consecutive frames of sustained stable conditions
-    self.bp_kappa_cmd = 0.0                # blended kappa fed into path_angle formula (rad/m)
-    self.bp_kappa_cmd_raw = 0.0            # raw planner curvature before blend (rad/m)
-    self.bp_d_ref = 0.0                    # PSCM look-ahead distance used this frame (m)
-    self.bp_yaw_rate_desired = 0.0         # kappaCmd × vEgo — target yaw rate (rad/s)
-    self.bp_is_stable_curve_follow = False  # True when conditions are suitable for gain calibration
+    # BluePilot: error-clipped kappa path_angle was derived from -- carcontroller.py reads this as
+    # shadow_curvature for ford.h's angle-mode deviation check. Actively consumed, not telemetry.
+    self.bp_kappa_cmd = 0.0
     # BluePilot: rate-limit diagnostics (controllerStateBP)
     self.bp_angle_rate_limited = False      # path_angle soft-ROC clip actually bit this frame
     self.bp_curvature_rate_limited = False  # equivalent curvature would be rate-limited by curv-mode logic (sim)
+    self.bp_curvature_deviation_limited = False  # current_curvature error-clip constrained kappa_cmd this frame
     self.sim_curvature_last = 0.0           # shadow curvature-mode last for the curvatureRateLimited sim
     # Exit detection: track previous desired curvature to sense when planner is actively reducing
     self._desired_curvature_last = 0.0
-    # Centering trim state (Option C): additive on path_angle, c0 stays zero.
-    self.path_angle_trim_max = 0.3  # rad (~17°) — large default; tune down via FordPathAngleTrimMax param
-    self._path_angle_trim_last = 0.0
-    self._ll_centre_error_filt = 0.0
-    self.bp_swa_trim = 0.0              # telemetry: PID trim added to path_angle (rad)
-    self.bp_ll_centre_error = 0.0       # telemetry: filtered lane center error (m, +ve = left)
-    self.bp_ll_centre_error_raw = 0.0   # telemetry: unfiltered lane center error — actual PID input (m)
-    # UI: ``FordPrefAnglePathOffsetEnable`` — repurposed to gate the angle-mode centering trim.
-    self.angle_trim_enable = True
-    # High-curvature gain scale floor — reduces gain in tight turns to prevent sustained over-steer.
-    self.high_curv_gain_scale = 0.825
 
   def update_angle_params(self, params):
     """Sets per-platform gain defaults and reads user feel-factor params."""
@@ -213,9 +145,8 @@ class LateralAngleExt:
 
   def update_angle_strategy(self, CC, CS, actuators, CP):
     """
-    Curvature from planner (+ optional predicted blend) → path_angle via ½·κ·d_ref, plus a small
-    additive centering trim (clipped to ``self.path_angle_trim_max`` from ``FordPathAngleTrimMax``).
-    c0 is always zero on the wire; centering is delivered through the c1 trim. c2 and c3 are zero.
+    Curvature from planner (+ optional predicted blend) → path_angle via ½·κ·d_ref.
+    c0 (path_offset) is always zero on the wire -- no centering trim in angle mode. c2 and c3 are zero.
     Blended κ is not passed through Ford c2 rate / DBC limits (those target the curvature actuator).
     """
     self._ensure_lateral_curv_initialized(CP)
@@ -233,33 +164,12 @@ class LateralAngleExt:
     if not CC.latActive:
       self.path_angle_last = 0.0
       self.bp_path_angle_final = 0.0
-      self.bp_path_angle_equiv_gain = 0.0
       self.apply_curvature_last = 0.0
-      self._path_angle_trim_last = 0.0
-      self.bp_roc_path_angle_max = 0.0
-      self.bp_roc_path_angle_min = 0.0
-      self.bp_path_angle_pre_sat = 0.0
-      self._ford_h_sim_last = 0.0
-      self.bp_ford_h_sim_max = 0.0
-      self.bp_ford_h_sim_min = 0.0
-      self.bp_ford_h_violation_high = False
-      self.bp_ford_h_violation_low  = False
-      self._kappa_cmd_last_stable = 0.0
-      self._stable_curve_counter = 0
-      self.bp_kappa_cmd = 0.0
-      self.bp_kappa_cmd_raw = 0.0
-      self.bp_d_ref = 0.0
-      self.bp_yaw_rate_desired = 0.0
-      self.bp_is_stable_curve_follow = False
       self.bp_angle_rate_limited = False
       self.bp_curvature_rate_limited = False
+      self.bp_curvature_deviation_limited = False
       self.sim_curvature_last = 0.0
-      self._ll_centre_error_filt = 0.0
-      self.bp_swa_trim = 0.0
-      self.bp_ll_centre_error = 0.0
-      self.bp_ll_centre_error_raw = 0.0
-      self.LC_PID_controller.reset()
-      self.LC_path_angle_reset_counter = 0
+      self.bp_kappa_cmd = 0.0
       self.precision_type = 1
       return LateralResult(
         apply_curvature=0.0,
@@ -348,8 +258,27 @@ class LateralAngleExt:
     self.precision_type = precision
 
     # Use planner / predicted κ directly for the κ → path_angle map; we are not sending κ on CAN.
-    # Ford curvature rate limits and apply_std_steer_angle_limits are for c2; angle-specific safety later.
     kappa_cmd = float(requested_curvature)
+
+    # BluePilot: clip kappa_cmd to current_curvature (measured, from yaw rate) +- CURVATURE_ERROR,
+    # mirroring lateral_curv_ext.py's apply_ford_curvature_limits_ext exactly (same formula, same
+    # v_ego > 9 gate, same CarControllerParams.CURVATURE_ERROR tolerance). Without this, kappa_cmd
+    # (and therefore path_angle, and the shadow_curvature sent to ford.h) can legitimately lead the
+    # measured curvature by more than ford.h's angle-error tolerance during normal curve entry/exit
+    # -- the shadow-curvature deviation check (ford_shadow_curvature_error_check) would then block
+    # routinely, not just on genuine pothole/override divergence. Curvature mode has always clipped
+    # here; this brings angle mode's actual steering intent in line with that proven behavior rather
+    # than only clipping the value reported to panda (which would make the check a no-op).
+    current_curvature = -CS.out.yawRate / max(v_ego, 0.1)
+    self.bp_curvature_deviation_limited = False
+    if v_ego > 9:
+      _kappa_cmd_pre_error_clip = kappa_cmd
+      kappa_cmd = float(clip(kappa_cmd, current_curvature - CarControllerParams.CURVATURE_ERROR,
+                            current_curvature + CarControllerParams.CURVATURE_ERROR))
+      # BluePilot: did this clip actually constrain kappa_cmd this frame (deviation from measured,
+      # not rate-of-change -- see carcontroller.py)?
+      self.bp_curvature_deviation_limited = bool(abs(kappa_cmd - _kappa_cmd_pre_error_clip) > 1e-9)
+
     lateral_uncertainty = 0.0  # no curvature-limit ladder until angle-mode torque display is defined
 
 
@@ -362,9 +291,6 @@ class LateralAngleExt:
     self.curvature_factor = interp(abs(kappa_cmd), [0.0007, 0.001], [self.low_gain_calc, self.high_gain_calc])
 
     path_angle_calc = kappa_cmd * v_ego * self.curvature_factor
-
-
-    # Apply trim, then DBC clip.
     path_angle = path_angle_calc
 
 
@@ -407,7 +333,7 @@ class LateralAngleExt:
     self.bp_angle_rate_limited = bool(abs(path_angle - _path_angle_pre_roc) > 1e-9)
 
 
-    # c0 always zero — centering lives on c1 via the trim above (see lateral_curv_ext.py:537).
+    # c0 always zero -- no centering trim in angle mode.
     path_offset = 0.0
 
     # Telemetry / state
@@ -418,17 +344,17 @@ class LateralAngleExt:
     self.path_angle_last = path_angle
     self.bp_path_angle_final = path_angle
     self.apply_curvature_last = 0.0
+    # BluePilot: the error-clipped kappa path_angle was derived from -- carcontroller.py reads this
+    # as shadow_curvature for ford.h's angle-mode deviation check (see fordcan_ext.create_lka_msg).
+    # Not just telemetry: an actively-consumed value, unlike the removed *_kappa_cmd_raw stubs.
+    self.bp_kappa_cmd = kappa_cmd
 
-    # BluePilot: would the equivalent curvature (kappa_cmd) have been rate-limited by curvature-mode
-    # logic? Simulate lateral_curv_ext's error-clip + apply_std_steer_angle_limits against a shadow
-    # last, so we can compare angle-mode vs curvature-mode ROC while actually sending path_angle.
-    _curr_curv = -CS.out.yawRate / max(v_ego, 0.1)
-    _equiv_curv_pre = (float(clip(kappa_cmd, _curr_curv - CarControllerParams.CURVATURE_ERROR,
-                                  _curr_curv + CarControllerParams.CURVATURE_ERROR))
-                       if v_ego > 9.0 else kappa_cmd)
-    _equiv_curv_rl = apply_std_steer_angle_limits(_equiv_curv_pre, self.sim_curvature_last, v_ego,
+    # BluePilot: would the equivalent curvature (kappa_cmd) have been rate-limited by curvature-mode's
+    # ROC (apply_std_steer_angle_limits)? kappa_cmd is already error-clipped above (same clip
+    # curvature mode applies), so only the rate-of-change portion remains to simulate here.
+    _equiv_curv_rl = apply_std_steer_angle_limits(kappa_cmd, self.sim_curvature_last, v_ego,
                                                   CS.out.steeringAngleDeg, CC.latActive, BP_ANGLE_LIMITS)
-    self.bp_curvature_rate_limited = bool(abs(_equiv_curv_rl - _equiv_curv_pre) > 1e-9)
+    self.bp_curvature_rate_limited = bool(abs(_equiv_curv_rl - kappa_cmd) > 1e-9)
     self.sim_curvature_last = float(_equiv_curv_rl)
 
     ramp_type = 2

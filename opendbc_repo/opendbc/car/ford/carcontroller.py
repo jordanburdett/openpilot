@@ -178,6 +178,10 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
         _angle_mode = self.primary_lateral_control == PrimaryLateralControl.angle
         self.angleRateLimited = getattr(self, 'bp_angle_rate_limited', False) if _angle_mode else False
         self.curvatureRateLimited = getattr(self, 'bp_curvature_rate_limited', False) if _angle_mode else False
+        # BluePilot: current-curvature deviation-clip diagnostic. Set by whichever strategy just ran
+        # (both lateral_curv_ext.update and lateral_angle_ext.update_angle_strategy set this), so it's
+        # meaningful in both modes -- not gated by _angle_mode like the two above.
+        self.curvatureDeviationLimited = getattr(self, 'bp_curvature_deviation_limited', False)
 
         lat_active = CC.latActive
         if self.CP.flags & FordFlags.CANFD:
@@ -195,7 +199,22 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
 
     # send lka msg at 33Hz
     if (self.frame % CarControllerParams.LKA_STEP) == 0:
-      can_sends.append(fordcan.create_lka_msg(self.packer, self.CAN))
+      # BluePilot: tell ford.h whether angle mode is engaged, out-of-band from LMC/LMC2, packed into
+      # Lane_Assist_Data1's unused bits (read synchronously in ford_tx_hook, no separate CAN ID/RX
+      # needed). bypass_bp_lat means BP lateral is off entirely, so angle mode can't be engaged then.
+      # shadow_curvature is only meaningful in angle mode (self.bp_kappa_cmd is stale/unused CurvExt
+      # state otherwise, so force it to 0 there).
+      # Negated to match the sign convention path_angle/apply_curvature use on the wire (see
+      # -lat.path_angle/-lat.apply_curvature just above) -- ford.h's angle_meas (measured curvature,
+      # from raw yaw rate with no negation) is calibrated against that wire convention, not
+      # bp_kappa_cmd's internal one. Confirmed via safety_replay against a real route (2026-07-10):
+      # un-negated, shadow_curvature and angle_meas were consistently opposite-signed, so the
+      # deviation check found a "divergence" on every frame once speed crossed angle_error_min_speed.
+      angle_mode_engaged = (not self.disable_BP_lat_UI) and (self.primary_lateral_control == PrimaryLateralControl.angle)
+      shadow_curvature = -self.bp_kappa_cmd if angle_mode_engaged else 0.0
+      can_sends.append(fordcan_ext.create_lka_msg(
+        self.packer, self.CAN, CC.latActive, hud_control, angle_mode_engaged, shadow_curvature
+      ))
 
     ### longitudinal control ###
     # send acc msg at 50Hz

@@ -237,6 +237,23 @@ static uint8_t reset_bypass_latch_counter = 0;
 static const uint8_t RESET_BYPASS_LATCH_DURATION = 60;  // ~3.0 seconds at 20Hz
 static bool test = false;
 
+// BluePilot: angle_mode_engaged + shadow_curvature, read synchronously out of Lane_Assist_Data1's
+// unused bits inside ford_tx_hook below (no separate CAN message, no RX -- see fordcan_ext.py's
+// create_lka_msg for the wire layout and why: panda does not self-receive its own TX, confirmed
+// 2026-07-09). shadow_curvature is the curvature (kappa) that angle mode's path_angle was derived
+// from (see lateral_angle_ext.py's bp_kappa_cmd) -- angle mode holds the real curvature signal at
+// the inactive sentinel (0) on the wire, so without this there is no commanded-vs-measured
+// deviation check for angle mode at all (steer_angle_cmd_checks below is only enforced when
+// desired_curvature != 0). Feeding shadow_curvature into that same check when angle mode is
+// confirmed engaged restores that protection.
+static bool ford_bp_angle_mode_engaged = false;
+static int16_t ford_bp_shadow_curvature_raw = 0;  // wire units, scale 1e-6 1/m (see fordcan_ext.py)
+
+// shadow_curvature is packed at scale 1e-6 1/m; convert to the CAN units steer_angle_cmd_checks
+// expects, matching FORD_STEERING_LIMITS/FORD_CANFD_STEERING_LIMITS.angle_deg_to_can (50000, i.e.
+// physical scale 2e-5): raw * 1e-6 * 50000 = raw * 0.05.
+#define FORD_BP_SHADOW_CURVATURE_TO_CAN(raw) ((int)((float)(raw) * 0.05f))
+
 static bool path_angle_cmd_checks(int desired_path_angle, bool steer_control_enabled, const AngleSteeringLimits limits) {
   bool violation = false;
 
@@ -327,6 +344,32 @@ static bool curvature_rate_cmd_checks(int desired_curvature_rate, bool steer_con
     FORD_SAFETY_DBG("curvature_rate_cmd_checks 2: violation: %d \n", (int)violation);
   }
 
+  return violation;
+}
+
+// BluePilot: angle mode has no "current path_angle" measurement to check the command against,
+// unlike curvature mode, which compares desired_curvature against angle_meas (measured curvature,
+// from yaw rate). Without this, a large deviation between commanded path_angle and the car's ACTUAL
+// curvature -- e.g. a pothole or driver override kicking the wheel -- would go unchecked: path_angle's
+// own ROC only bounds how fast the *command* changes, not how far it may sit from reality.
+//
+// Deliberately narrower than steer_angle_cmd_checks: no rate-of-change enforcement here, and no
+// shared state (desired_angle_last) with curvature mode. path_angle already has its own dedicated,
+// tuned ROC (path_angle_cmd_checks / FORD_PATH_ANGLE_LIMITS); imposing a second, curvature-tuned ROC
+// on shadow_curvature -- which isn't an actuator, just a cross-check value -- would risk spurious
+// blocks unrelated to path_angle's actual behavior (confirmed on real hardware 2026-07-10: doing
+// this via steer_angle_cmd_checks caused blocks at low speed from shadow_curvature jumping frame to
+// frame with nothing driving it toward path_angle's own smooth ROC). This is a pure per-frame
+// proximity check: does this frame's steering intent make physical sense given where the car is.
+static bool ford_shadow_curvature_error_check(int desired_curvature, bool steer_control_enabled,
+                                               const AngleSteeringLimits limits) {
+  bool violation = false;
+  if (steer_control_enabled && limits.enforce_angle_error &&
+      ((vehicle_speed.values[0] / VEHICLE_SPEED_FACTOR) > limits.angle_error_min_speed)) {
+    int lowest_allowed = angle_meas.min - limits.max_angle_error - 1;
+    int highest_allowed = angle_meas.max + limits.max_angle_error + 1;
+    violation = safety_max_limit_check(desired_curvature, highest_allowed, lowest_allowed);
+  }
   return violation;
 }
 
@@ -459,6 +502,14 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     if (action != 0U) {
       tx = false;
     }
+
+    // BluePilot: angle_mode_engaged + shadow_curvature packed into bits with no DBC signal mapped
+    // to them (byte4 bit0, bytes 5-6 -- confirmed unused on real F-150 dashcam routes; see
+    // fordcan_ext.py's create_lka_msg for the full layout and rationale). Read directly out of the
+    // message being transmitted right now, same as curvature/path_angle elsewhere in this file --
+    // no separate CAN ID, no RX round-trip.
+    ford_bp_angle_mode_engaged = (msg->data[4] & 0x1U) != 0U;
+    ford_bp_shadow_curvature_raw = (int16_t)((msg->data[5] << 8) | msg->data[6]);
   }
 
   // Safety check for LateralMotionControl action
@@ -540,6 +591,16 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
       FORD_SAFETY_DBG("CAN Out: 1. desired_curvature violation: %d\n", (int)violation);
     }
 
+    // BluePilot: angle mode's own deviation-only check (no ROC -- path_angle_cmd_checks below
+    // already rate-limits the real actuator) against shadow_curvature, once angle mode is confirmed
+    // engaged via Lane_Assist_Data1 (see ford_bp_angle_mode_engaged above). If desired_curvature == 0
+    // but angle mode is NOT confirmed (mismatch), this is skipped -- that case is already fully
+    // blocked by the corroboration gate below regardless.
+    if ((desired_curvature == 0) && ford_bp_angle_mode_engaged) {
+      int shadow_curvature_can = FORD_BP_SHADOW_CURVATURE_TO_CAN(ford_bp_shadow_curvature_raw);
+      violation |= ford_shadow_curvature_error_check(shadow_curvature_can, steer_control_enabled, FORD_STEERING_LIMITS);
+    }
+
     // Check path angle rate of change limits
     violation |= path_angle_cmd_checks(desired_path_angle, steer_control_enabled, FORD_PATH_ANGLE_LIMITS);
     if (test) {
@@ -571,6 +632,16 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     }
 
     if (violation) {
+      tx = false;
+    }
+
+    // BluePilot: block LMC if the LMC/LMC2 angle-mode sentinel (desired_curvature == 0) disagrees
+    // with ford_bp_angle_mode_engaged (read from Lane_Assist_Data1, see above) -- corroborates that
+    // angle mode really is engaged, not just that this frame's curvature happens to be zero.
+    // Confirmed on a Maverick (LMC, non-CAN-FD) and F-150 (LMC2, CAN-FD) 2026-07-09/10: gate
+    // correctly tracks the real bit bidirectionally on both message types.
+    // Applied after the reset-bypass latch so idling at path_angle=0 ("reset") can't bypass it.
+    if (steer_control_enabled && (desired_curvature == 0) && !ford_bp_angle_mode_engaged) {
       tx = false;
     }
   }
@@ -659,6 +730,16 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
       FORD_SAFETY_DBG("CANFD Out: 1. desired_curvature violation: %d\n", (int)violation);
     }
 
+    // BluePilot: angle mode's own deviation-only check (no ROC -- path_angle_cmd_checks below
+    // already rate-limits the real actuator) against shadow_curvature, once angle mode is confirmed
+    // engaged via Lane_Assist_Data1 (see ford_bp_angle_mode_engaged above). If desired_curvature == 0
+    // but angle mode is NOT confirmed (mismatch), this is skipped -- that case is already fully
+    // blocked by the corroboration gate below regardless.
+    if ((desired_curvature == 0) && ford_bp_angle_mode_engaged) {
+      int shadow_curvature_can = FORD_BP_SHADOW_CURVATURE_TO_CAN(ford_bp_shadow_curvature_raw);
+      violation |= ford_shadow_curvature_error_check(shadow_curvature_can, steer_control_enabled, FORD_CANFD_STEERING_LIMITS);
+    }
+
     // Check path angle rate of change limits
     violation |= path_angle_cmd_checks(desired_path_angle, steer_control_enabled, FORD_PATH_ANGLE_LIMITS);
     if (test) {
@@ -692,6 +773,16 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
     if (violation) {
       tx = false;
     }
+
+    // BluePilot: block LMC2 if the LMC/LMC2 angle-mode sentinel (desired_curvature == 0) disagrees
+    // with ford_bp_angle_mode_engaged (read from Lane_Assist_Data1, see above) -- corroborates that
+    // angle mode really is engaged, not just that this frame's curvature happens to be zero.
+    // Confirmed on a Maverick (LMC, non-CAN-FD) and F-150 (LMC2, CAN-FD) 2026-07-09/10: gate
+    // correctly tracks the real bit bidirectionally on both message types.
+    // Applied after the reset-bypass latch so idling at path_angle=0 ("reset") can't bypass it.
+    if (steer_control_enabled && (desired_curvature == 0) && !ford_bp_angle_mode_engaged) {
+      tx = false;
+    }
     if(test) {
       FORD_SAFETY_DBG("CANFD Out - final: violation: %d\n", (int)violation);
     }
@@ -717,6 +808,15 @@ static safety_config ford_init(uint16_t param) {
     {.msg = {{FORD_Steering_Data_FD1, 0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
+  // BluePilot: an earlier design tried a dedicated CAN message (0x5F0) for python->ford.h state,
+  // relying on panda receiving back its own transmitted frame. Confirmed on real hardware
+  // (2026-07-09) that panda does not self-receive its own TX (0x5F0 only ever showed up as a
+  // bus+128 TX-echo in the `can` stream, never real RX) -- and registering it in ford_rx_checks
+  // made safety_tick()'s 1Hz lagging check (safety.h) trip almost immediately after boot (no
+  // per-entry way to exempt a message from that check), forcing safetyRxChecksInvalid=true and
+  // controls_allowed=false car-wide, i.e. EventName.controlsMismatch. Replaced with reading
+  // angle_mode_engaged/shadow_curvature directly out of Lane_Assist_Data1's unused bits inside its
+  // own tx_hook check below -- synchronous, no RX involved. See ford_bp_angle_mode_engaged above.
   #define FORD_COMMON_TX_MSGS \
     {FORD_Steering_Data_FD1, 0, 8, .check_relay = false}, \
     {FORD_Steering_Data_FD1, 2, 8, .check_relay = false}, \

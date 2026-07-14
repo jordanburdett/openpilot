@@ -20,16 +20,44 @@ from opendbc.car.ford.fordcan import CanBus, calculate_lat_ctl2_checksum
 HUDControl = structs.CarControl.HUDControl
 
 
-def create_lka_msg(packer, CAN: CanBus, lat_active: bool, hud_control):
+_BP_LKA_SHADOW_CURVATURE_SCALE = 1e-6  # 1/meter per raw unit, matches ford.h's decode
+
+
+def create_lka_msg(packer, CAN: CanBus, lat_active: bool, hud_control,
+                    angle_mode_engaged: bool = False, shadow_curvature: float = 0.0):
   """
   Creates a CAN message for the Ford LKA Command.
 
   BluePilot extension: accepts lat_active and hud_control parameters for future
-  lane departure warning integration. Currently returns empty dict (same as stock).
+  lane departure warning integration (unused so far).
+
+  Also carries angle_mode_engaged + shadow_curvature packed into bits with no DBC signal mapped to
+  them -- confirmed unused (always 0, no cabana signal) on real F-150 dashcam routes. This message
+  is one openpilot itself originates every cycle, and ford_tx_hook already reads other fields
+  (LkaActvStats_D2_Req) directly out of these same bytes synchronously, in the same tx_hook call --
+  no separate CAN ID, no RX round-trip needed (panda does not self-receive its own TX, confirmed
+  2026-07-09 investigating a controlsMismatch caused by an earlier dedicated-message design).
+
+  Byte layout (bits not covered by any Lane_Assist_Data1 DBC signal):
+    byte 4 bit 0:     angle_mode_engaged
+    byte 4 bits 1-4:  reserved (future bools)
+    byte 5-6:         shadow_curvature (int16, scale 1e-6 1/m)
+    byte 7:           reserved (future value)
+  Must match the decode in ford.h's FORD_Lane_Assist_Data1 tx_hook check exactly.
 
   Frequency is 33Hz.
   """
-  return packer.make_can_msg("Lane_Assist_Data1", CAN.main, {})
+  addr, dat, bus = packer.make_can_msg("Lane_Assist_Data1", CAN.main, {})
+  dat = bytearray(dat)
+
+  shadow_curvature_raw = int(round(shadow_curvature / _BP_LKA_SHADOW_CURVATURE_SCALE))
+  shadow_curvature_raw = max(-32768, min(32767, shadow_curvature_raw)) & 0xFFFF
+
+  dat[4] |= 1 if angle_mode_engaged else 0
+  dat[5] = (shadow_curvature_raw >> 8) & 0xFF
+  dat[6] = shadow_curvature_raw & 0xFF
+
+  return addr, bytes(dat), bus
 
 
 def create_lat_ctl_msg(packer, CAN: CanBus, lat_active: bool, ramp_type: int, precision_type: int,
