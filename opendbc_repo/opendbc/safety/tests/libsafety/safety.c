@@ -226,15 +226,11 @@ static MADSState *get_mads_state(void) {
   return &m_mads_state;
 }
 
-bool get_lat_active(void){
-  return controls_allowed_lateral;  // was is_lat_active() (undefined on this branch)
+bool get_controls_allowed_lateral(void){
+  return controls_allowed_lateral;
 }
 
-bool get_controls_allowed_lat(void){
-  return controls_allowed_lateral;  // was is_lat_active() (undefined on this branch)
-}
-
-bool get_controls_requested_lat(void){
+bool get_controls_requested_lateral(void){
   return get_mads_state()->controls_requested_lateral;
 }
 
@@ -270,8 +266,8 @@ int get_mads_button_press(void){
   return mads_button_press;
 }
 
-void set_controls_allowed_lat(bool c){
-  controls_allowed_lateral = c;  // local analysis: global, not a struct field on this branch
+void set_controls_allowed_lateral(bool c){
+  controls_allowed_lateral = c;
 }
 
 bool get_mads_acc_main(void){
@@ -286,8 +282,16 @@ void mads_set_current_disengage_reason(int reason) {
   m_mads_state.current_disengage.active_reason = reason;
 }
 
-void set_controls_requested_lat(bool c){
+void set_controls_requested_lateral(bool c){
   m_mads_state.controls_requested_lateral = c;
+}
+
+void mads_apply_alternative_experience(int mode){
+  mads_set_alternative_experience(&mode);
+}
+
+void tick_mads_state(bool vm, bool acc_main, bool op_allowed, bool braking, bool steering_disengage){
+  mads_state_update(vm, acc_main, op_allowed, braking, steering_disengage);
 }
 
 void set_mads_params(bool enable_mads, bool disengage_lateral_on_brake, bool pause_lateral_on_brake){
