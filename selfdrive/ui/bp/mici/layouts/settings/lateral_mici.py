@@ -17,10 +17,13 @@ class LateralLayoutMici(NavScroller):
 
     # --- Angle-mode-only items ---
     self.low_speed_factor = BigParamFloatControl(
-      "Low Speed Adjustment Factor", "FordAngleLowSpeedFactor", min=0.5, max=1.5, step=0.01,
+      "Low Speed Adjustment Factor", "FordLowSpeedFactor_ang", min=0.5, max=1.5, step=0.01,
     )
     self.high_speed_factor = BigParamFloatControl(
-      "High Speed Adjustment Factor", "FordAngleHighSpeedFactor", min=0.5, max=1.5, step=0.01,
+      "High Speed Adjustment Factor", "FordHighSpeedFactor_ang", min=0.5, max=1.5, step=0.01,
+    )
+    self.lane_change_factor_high_ang = BigParamFloatControl(
+      "Lane Change Factor High", "lane_change_factor_high_ang", min=0.85, max=1.50,
     )
 
     # --- Always-visible items ---
@@ -32,43 +35,44 @@ class LateralLayoutMici(NavScroller):
     self.blinker_min_speed = BigParamIntControl(
       "Minimum Speed to Pause Lane Change", "BlinkerMinLateralControlSpeed", min=5, max=50, step=5,
     )
-    self.lane_change_factor_high = BigParamFloatControl(
-      "Lane Change Factor High", "lane_change_factor_high", min=0.5, max=2.0,
-    )
-    self.custom_path_offset = BigParamFloatControl(
-      "In-Lane Offset", "custom_path_offset", min=-0.5, max=0.5,
-    )
     self.show_lateral_control = BigParamControlBP("Show Lateral Control Mode", "BpShowLateralControl")
 
     # --- Curvature-mode-only items ---
+    self.lane_change_factor_high_curv = BigParamFloatControl(
+      "Lane Change Factor High", "lane_change_factor_high_curv", min=0.5, max=1.0,
+    )
+    self.custom_path_offset = BigParamFloatControl(
+      "In-Lane Offset", "custom_path_offset_curv", min=-0.5, max=0.5,
+    )
     self.enable_human_turn_detection = BigParamControlBP(
-      "Enable Human Turn Detection", "enable_human_turn_detection",
+      "Enable Human Turn Detection", "enable_human_turn_detection_curv",
     )
     self.enable_lane_positioning = BigParamControlBP(
-      "Enable Lane Positioning", "enable_lane_positioning",
+      "Enable Lane Positioning", "enable_lane_positioning_curv",
     )
     self.enable_lane_full_mode = BigParamControlBP(
-      "Enable Lanefull Mode", "enable_lane_full_mode",
+      "Enable Lanefull Mode", "enable_lane_full_mode_curv",
     )
     self.custom_profile = BigParamControlBP(
-      "Use Custom Tuning Profile", "custom_profile",
+      "Use Custom Tuning Profile", "custom_profile_curv",
     )
     self.pc_blend_ratio_high_C = BigParamFloatControl(
-      "Predicted Curvature Blend Ratio High", "pc_blend_ratio_high_C_UI", min=0.0, max=1.0, step=0.05,
+      "Predicted Curvature Blend Ratio High", "pc_blend_ratio_high_C_UI_curv", min=0.0, max=1.0, step=0.05,
     )
     self.pc_blend_ratio_low_C = BigParamFloatControl(
-      "Predicted Curvature Blend Ratio Low", "pc_blend_ratio_low_C_UI", min=0.0, max=1.0, step=0.05,
+      "Predicted Curvature Blend Ratio Low", "pc_blend_ratio_low_C_UI_curv", min=0.0, max=1.0, step=0.05,
     )
     self.lc_pid_gain = BigParamFloatControl(
-      "Centering PID Gain", "LC_PID_gain_UI", min=0.0, max=50.0, step=0.5,
+      "Centering PID Gain", "LC_PID_gain_UI_curv", min=0.0, max=50.0, step=0.5,
     )
 
     self._scroller.add_widgets([
       self.low_speed_factor,
       self.high_speed_factor,
+      self.lane_change_factor_high_ang,
       self.disable_lane_change_under_speed,
       self.blinker_min_speed,
-      self.lane_change_factor_high,
+      self.lane_change_factor_high_curv,
       self.enable_human_turn_detection,
       self.custom_path_offset,
       self.enable_lane_positioning,
@@ -84,10 +88,10 @@ class LateralLayoutMici(NavScroller):
     self._refresh_toggles = (
       ("disable_BP_lat_UI", self.disable_BP_lat),
       ("BlinkerPauseLaneChange", self.disable_lane_change_under_speed),
-      ("enable_human_turn_detection", self.enable_human_turn_detection),
-      ("enable_lane_positioning", self.enable_lane_positioning),
-      ("enable_lane_full_mode", self.enable_lane_full_mode),
-      ("custom_profile", self.custom_profile),
+      ("enable_human_turn_detection_curv", self.enable_human_turn_detection),
+      ("enable_lane_positioning_curv", self.enable_lane_positioning),
+      ("enable_lane_full_mode_curv", self.enable_lane_full_mode),
+      ("custom_profile_curv", self.custom_profile),
       ("BpShowLateralControl", self.show_lateral_control),
     )
 
@@ -106,8 +110,10 @@ class LateralLayoutMici(NavScroller):
     is_curv = not is_angle
     self.low_speed_factor.set_visible(is_angle)
     self.high_speed_factor.set_visible(is_angle)
+    self.lane_change_factor_high_ang.set_visible(is_angle)
     self.blinker_min_speed.set_enabled(ui_state.params.get_bool("BlinkerPauseLaneChange"))
     for item in (
+      self.lane_change_factor_high_curv,
       self.enable_human_turn_detection,
       self.enable_lane_positioning,
       self.enable_lane_full_mode,

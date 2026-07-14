@@ -294,6 +294,23 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FordPrefLateralControl", {PERSISTENT | BACKUP, INT, "0"}},
     {"FordAngleLowSpeedFactor", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
     {"FordAngleHighSpeedFactor", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+
+    // Blue Pilot: lateral-tuning params split by control scheme (curvature vs angle) -- see
+    // sunnypilot/system/params_migration.py for the one-time migration from the params above.
+    {"enable_human_turn_detection_curv", {PERSISTENT | BACKUP, BOOL, "1"}},
+    {"lane_change_factor_high_curv", {PERSISTENT | BACKUP, FLOAT, "0.85"}},
+    {"lane_change_factor_high_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    {"pc_blend_ratio_high_C_UI_curv", {PERSISTENT | BACKUP, FLOAT, "0.4"}},
+    {"pc_blend_ratio_low_C_UI_curv", {PERSISTENT | BACKUP, FLOAT, "0.4"}},
+    {"enable_lane_positioning_curv", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"custom_path_offset_curv", {PERSISTENT | BACKUP, FLOAT, "0.0"}},
+    {"enable_lane_full_mode_curv", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"custom_profile_curv", {PERSISTENT | BACKUP, INT, "0"}},
+    {"LC_PID_gain_UI_curv", {PERSISTENT | BACKUP, FLOAT, "3.0"}},
+    {"FordLowSpeedFactor_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    {"FordHighSpeedFactor_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    {"BPLateralSchemeParamsMigratedV1", {PERSISTENT | BACKUP, BOOL, "0"}},
+
     {"disable_BP_lat_UI", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"disable_BP_long_UI", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"disable_downhill_comp_UI", {PERSISTENT | BACKUP, BOOL, "0"}},

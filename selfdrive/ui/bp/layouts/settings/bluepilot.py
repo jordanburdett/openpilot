@@ -69,11 +69,11 @@ class BluePilotLayout(Widget):
       ("FordPrefShowRadarLeadOverlay", self._show_ford_radar_overlay),
       ("FordPrefHybridBatteryStatus", self._show_hybrid_battery_status),
       ("FordPrefHybridPowerFlow", self._show_hybrid_power_flow),
-      ("enable_human_turn_detection", self._enable_human_turn_detection),
+      ("enable_human_turn_detection_curv", self._enable_human_turn_detection),
       ("BlinkerPauseLaneChange", self._disable_lane_change_under_speed),
-      ("enable_lane_positioning", self._enable_lane_positioning),
-      ("enable_lane_full_mode", self._enable_lane_full_mode),
-      ("custom_profile", self._custom_profile),
+      ("enable_lane_positioning_curv", self._enable_lane_positioning),
+      ("enable_lane_full_mode_curv", self._enable_lane_full_mode),
+      ("custom_profile_curv", self._custom_profile),
       ("disable_BP_lat_UI", self._disable_BP_lat),
       ("disable_BP_long_UI", self._disable_BP_long),
       ("disable_downhill_comp_UI", self._disable_dowhill_comp),
@@ -256,18 +256,27 @@ class BluePilotLayout(Widget):
     self._enable_human_turn_detection = toggle_item(
       lambda: tr("Enable Human Turn Detection"),
       lambda: tr("Enable detection of human-initiated turns."),
-      initial_state=self._safe_get_bool(self._params, "enable_human_turn_detection"),
-      callback=lambda state: self._toggle_callback(state, "enable_human_turn_detection"),
+      initial_state=self._safe_get_bool(self._params, "enable_human_turn_detection_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_human_turn_detection_curv"),
       icon="warning.png"
     )
 
-    # Lane change factor high (float)
-    self._lane_change_factor_high = float_control_item(
+    # Lane change factor high (float) — curvature-mode and angle-mode tune this independently
+    self._lane_change_factor_high_curv = float_control_item(
       lambda: tr("Lane Change Factor High"),
-      lambda: tr("Scales steering during a lane change. <1.0 reduces (curvature control); >1.0 boosts (angle control)."),
-      param="lane_change_factor_high",
+      lambda: tr("Scales steering during a lane change (curvature control). Values <1.0 reduce it."),
+      param="lane_change_factor_high_curv",
       min_value=0.5,
-      max_value=2.0,
+      max_value=1.0,
+      step=0.05,
+      icon="speed_limit.png"
+    )
+    self._lane_change_factor_high_ang = float_control_item(
+      lambda: tr("Lane Change Factor High"),
+      lambda: tr("Scales steering during a lane change (angle control). Values >1.0 boost it."),
+      param="lane_change_factor_high_ang",
+      min_value=0.85,
+      max_value=1.50,
       step=0.05,
       icon="speed_limit.png"
     )
@@ -294,8 +303,8 @@ class BluePilotLayout(Widget):
     self._enable_lane_positioning = toggle_item(
       lambda: tr("Enable Lane Positioning"),
       lambda: tr("Enable custom lane positioning controls."),
-      initial_state=self._safe_get_bool(self._params, "enable_lane_positioning"),
-      callback=lambda state: self._toggle_callback(state, "enable_lane_positioning"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -303,11 +312,11 @@ class BluePilotLayout(Widget):
     self._custom_path_offset = float_control_item(
       lambda: tr("In-Lane Offset"),
       lambda: tr("Adjust the in-lane offset (-0.5 to 0.5)."),
-      param="custom_path_offset",
+      param="custom_path_offset_curv",
       min_value=-0.5,
       max_value=0.5,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -315,9 +324,9 @@ class BluePilotLayout(Widget):
     self._enable_lane_full_mode = toggle_item(
       lambda: tr("Enable Lanefull Mode"),
       lambda: tr("Enable lanefull mode for lane positioning."),
-      initial_state=self._safe_get_bool(self._params, "enable_lane_full_mode"),
-      callback=lambda state: self._toggle_callback(state, "enable_lane_full_mode"),
-      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_full_mode_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_lane_full_mode_curv"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -325,8 +334,8 @@ class BluePilotLayout(Widget):
     self._custom_profile = toggle_item(
       lambda: tr("Use Custom Tuning Profile"),
       lambda: tr("Enable custom tuning profile settings."),
-      initial_state=self._safe_get_bool(self._params, "custom_profile"),
-      callback=lambda state: self._toggle_callback(state, "custom_profile"),
+      initial_state=self._safe_get_bool(self._params, "custom_profile_curv"),
+      callback=lambda state: self._toggle_callback(state, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -334,11 +343,11 @@ class BluePilotLayout(Widget):
     self._pc_blend_ratio_high_C = float_control_item(
       lambda: tr("Predicted Curvature Blend Ratio High"),
       lambda: tr("Adjust the high curvature blend ratio (0.0-1.0)."),
-      param="pc_blend_ratio_high_C_UI",
+      param="pc_blend_ratio_high_C_UI_curv",
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -346,19 +355,20 @@ class BluePilotLayout(Widget):
     self._pc_blend_ratio_low_C = float_control_item(
       lambda: tr("Predicted Curvature Blend Ratio Low"),
       lambda: tr("Adjust the low curvature blend ratio (0.0-1.0)."),
-      param="pc_blend_ratio_low_C_UI",
+      param="pc_blend_ratio_low_C_UI_curv",
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
-    # Centering PID gain — used by angle-mode trim (always) and curv-mode lane positioning (when custom_profile is on).
+    # Centering PID gain — curv-mode lane positioning only (only effective when custom_profile_curv is on).
+    # Angle mode's centering trim was removed; see lateral_angle_ext.py docstring.
     self._lc_pid_gain = float_control_item(
       lambda: tr("Centering PID gain"),
-      lambda: tr("PID gain for the centering controller. In angle mode, drives the path_angle trim. In curvature mode, drives the path_angle PID (only effective when 'custom profile' is enabled)."),
-      param="LC_PID_gain_UI",
+      lambda: tr("PID gain for the curvature-mode centering controller (only effective when 'custom profile' is enabled)."),
+      param="LC_PID_gain_UI_curv",
       min_value=0.0,
       max_value=50.0,
       step=0.5,
@@ -401,7 +411,7 @@ class BluePilotLayout(Widget):
     self._low_speed_curv_factor = float_control_item(
       lambda: tr("Low Speed Adjustment Factor"),
       lambda: tr("Scales the low-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
-      param="FordAngleLowSpeedFactor",
+      param="FordLowSpeedFactor_ang",
       min_value=0.5,
       max_value=1.5,
       step=0.01,
@@ -410,7 +420,7 @@ class BluePilotLayout(Widget):
     self._high_speed_curv_factor = float_control_item(
       lambda: tr("High Speed Adjustment Factor"),
       lambda: tr("Scales the high-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
-      param="FordAngleHighSpeedFactor",
+      param="FordHighSpeedFactor_ang",
       min_value=0.5,
       max_value=1.5,
       step=0.01,
@@ -494,13 +504,20 @@ class BluePilotLayout(Widget):
       header.set_items(items)
       return [header] + items
 
-    lateral_items = [
+    # Angle Tuning: nested collapsible sub-section, angle-mode-only tuning items
+    angle_items = [
       self._low_speed_curv_factor,
       self._high_speed_curv_factor,
+      self._lane_change_factor_high_ang,
+    ]
+    angle_header = CollapsibleSectionHeader(tr("Angle Tuning"))
+    angle_header.set_items(angle_items)
+    self._angle_header = angle_header
+
+    # Curvature Tuning: nested collapsible sub-section, curvature-mode-only tuning items
+    curv_items = [
       self._enable_human_turn_detection,
-      self._disable_lane_change_under_speed,
-      self._blinker_min_speed,
-      self._lane_change_factor_high,
+      self._lane_change_factor_high_curv,
       self._enable_lane_positioning,
       self._custom_path_offset,
       self._enable_lane_full_mode,
@@ -508,11 +525,26 @@ class BluePilotLayout(Widget):
       self._pc_blend_ratio_high_C,
       self._pc_blend_ratio_low_C,
       self._lc_pid_gain,
-      self._show_lateral_control,
-      self._disable_BP_lat,
     ]
-    lateral_section = _section(tr("Lateral Tuning"), lateral_items)
-    self._lateral_header = lateral_section[0]
+    curv_header = CollapsibleSectionHeader(tr("Curvature Tuning"))
+    curv_header.set_items(curv_items)
+    self._curv_header = curv_header
+
+    # Lateral Tuning: outer section. Disable toggle and mode selector up top, then mode-agnostic
+    # lane-change items, then the two nested sub-sections (always visible, greyed by mode above).
+    lateral_items = [
+      self._disable_BP_lat,
+      self._primary_lateral_control_btn,
+      self._disable_lane_change_under_speed,
+      self._blinker_min_speed,
+      self._show_lateral_control,
+    ]
+    lateral_header = CollapsibleSectionHeader(tr("Lateral Tuning"))
+    lateral_header.set_items(lateral_items + [angle_header, curv_header])
+    lateral_header.set_nested_headers([angle_header, curv_header])
+    self._lateral_header = lateral_header
+
+    lateral_section = [lateral_header] + lateral_items + [angle_header] + angle_items + [curv_header] + curv_items
 
     return (
       _section(tr("System"), [
@@ -546,7 +578,6 @@ class BluePilotLayout(Widget):
         self._disable_dowhill_comp,
         self._disable_ford_radar,
       ]) +
-      [self._primary_lateral_control_btn] +
       lateral_section
     )
     # End BluePilot
@@ -604,33 +635,27 @@ class BluePilotLayout(Widget):
     self._hybrid_gauge_style_btn.action_item.set_selected_button(style_idx)
     plat_idx = PrimaryLateralControl(ui_state.params.get("FordPrefLateralControl", return_default=True) or 0)
     self._primary_lateral_control_btn.action_item.set_selected_button(plat_idx)
-    custom_prof = fresh.get("custom_profile") if "custom_profile" in fresh else self._safe_get_bool(ui_state.params, "custom_profile")
-    lane_pos = fresh.get("enable_lane_positioning") if "enable_lane_positioning" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning")
+    custom_prof = fresh.get("custom_profile_curv") if "custom_profile_curv" in fresh else self._safe_get_bool(ui_state.params, "custom_profile_curv")
+    lane_pos = fresh.get("enable_lane_positioning_curv") if "enable_lane_positioning_curv" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning_curv")
     pause_lc = fresh.get("BlinkerPauseLaneChange") if "BlinkerPauseLaneChange" in fresh else self._safe_get_bool(ui_state.params, "BlinkerPauseLaneChange")
     is_angle = (plat_idx == PrimaryLateralControl.angle)
     is_curv = not is_angle
-    # Angle-mode-only items
-    self._lateral_header.set_item_visible(self._low_speed_curv_factor, is_angle)
-    self._lateral_header.set_item_visible(self._high_speed_curv_factor, is_angle)
     # Conditional on BlinkerPauseLaneChange
     self._blinker_min_speed.action_item.set_enabled(pause_lc)
-    # Curvature-mode-only items
-    self._lateral_header.set_item_visible(self._enable_human_turn_detection, is_curv)
-    self._lateral_header.set_item_visible(self._enable_lane_positioning, is_curv)
-    self._lateral_header.set_item_visible(self._enable_lane_full_mode, is_curv)
-    self._lateral_header.set_item_visible(self._custom_profile, is_curv)
-    self._lateral_header.set_item_visible(self._pc_blend_ratio_high_C, is_curv)
-    self._lateral_header.set_item_visible(self._pc_blend_ratio_low_C, is_curv)
-    self._lateral_header.set_item_visible(self._lc_pid_gain, is_curv)
-    # Enabled states depend on mode
-    if is_curv:
-      self._custom_path_offset.action_item.set_enabled(lane_pos)
-      self._enable_lane_full_mode.action_item.set_enabled(lane_pos)
-      self._pc_blend_ratio_high_C.action_item.set_enabled(custom_prof)
-      self._pc_blend_ratio_low_C.action_item.set_enabled(custom_prof)
-      self._lc_pid_gain.action_item.set_enabled(lane_pos and custom_prof)
-    else:
-      self._custom_path_offset.action_item.set_enabled(True)
+    # Angle-mode items: always visible (Angle Tuning section), greyed out when curvature mode is active
+    self._low_speed_curv_factor.action_item.set_enabled(is_angle)
+    self._high_speed_curv_factor.action_item.set_enabled(is_angle)
+    self._lane_change_factor_high_ang.action_item.set_enabled(is_angle)
+    # Curvature-mode items: always visible (Curvature Tuning section), greyed out when angle mode is active
+    self._lane_change_factor_high_curv.action_item.set_enabled(is_curv)
+    self._enable_human_turn_detection.action_item.set_enabled(is_curv)
+    self._enable_lane_positioning.action_item.set_enabled(is_curv)
+    self._custom_path_offset.action_item.set_enabled(is_curv and lane_pos)
+    self._enable_lane_full_mode.action_item.set_enabled(is_curv and lane_pos)
+    self._custom_profile.action_item.set_enabled(is_curv)
+    self._pc_blend_ratio_high_C.action_item.set_enabled(is_curv and custom_prof)
+    self._pc_blend_ratio_low_C.action_item.set_enabled(is_curv and custom_prof)
+    self._lc_pid_gain.action_item.set_enabled(is_curv and lane_pos and custom_prof)
 
   def show_event(self):
     super().show_event()

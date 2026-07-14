@@ -47,6 +47,43 @@ def _migrate_car_platform_bundle(_params):
   cloudlog.info(f"params_migration: CarPlatformBundle migrated {old_platform!r} -> {new_platform!r}")
 
 
+BP_LATERAL_SCHEME_PARAMS_MIGRATION_VERSION: str = "1"
+
+# (old key, new key) -- old keys stay declared in common/params_keys.h (harmless orphans) so their
+# stored values are still readable here. lane_change_factor_high intentionally has no _ang entry:
+# the old curvature-tuned default (0.85) is the wrong direction for angle mode, so _ang just takes
+# its own fresh params_keys.h default instead of inheriting a stale value.
+_BP_LATERAL_SCHEME_PARAM_RENAMES = (
+  ("enable_human_turn_detection", "enable_human_turn_detection_curv"),
+  ("lane_change_factor_high", "lane_change_factor_high_curv"),
+  ("pc_blend_ratio_high_C_UI", "pc_blend_ratio_high_C_UI_curv"),
+  ("pc_blend_ratio_low_C_UI", "pc_blend_ratio_low_C_UI_curv"),
+  ("enable_lane_positioning", "enable_lane_positioning_curv"),
+  ("custom_path_offset", "custom_path_offset_curv"),
+  ("enable_lane_full_mode", "enable_lane_full_mode_curv"),
+  ("custom_profile", "custom_profile_curv"),
+  ("LC_PID_gain_UI", "LC_PID_gain_UI_curv"),
+  ("FordAngleLowSpeedFactor", "FordLowSpeedFactor_ang"),
+  ("FordAngleHighSpeedFactor", "FordHighSpeedFactor_ang"),
+)
+
+
+def _migrate_bp_lateral_scheme_params(_params):
+  if _params.get("BPLateralSchemeParamsMigratedV1") == BP_LATERAL_SCHEME_PARAMS_MIGRATION_VERSION:
+    return
+
+  try:
+    for old_key, new_key in _BP_LATERAL_SCHEME_PARAM_RENAMES:
+      old_val = _params.get(old_key, return_default=True)
+      _params.put(new_key, old_val, block=True)
+      cloudlog.info(f"params_migration: seeded {new_key} from {old_key} ({old_val})")
+
+    _params.put("BPLateralSchemeParamsMigratedV1", BP_LATERAL_SCHEME_PARAMS_MIGRATION_VERSION, block=True)
+    cloudlog.info("params_migration: BP lateral scheme param split complete")
+  except Exception as e:
+    cloudlog.exception(f"Error migrating BP lateral scheme params: {e}")
+
+
 def run_migration(_params):
   # migrate OnroadScreenOffBrightness
   if _params.get("OnroadScreenOffBrightnessMigrated") != ONROAD_BRIGHTNESS_MIGRATION_VERSION:
@@ -80,3 +117,6 @@ def run_migration(_params):
       cloudlog.exception(f"Error migrating OnroadScreenOffTimer: {e}")
 
   _migrate_car_platform_bundle(_params)
+
+  # BluePilot: split lateral-tuning params by control scheme (curvature vs angle)
+  _migrate_bp_lateral_scheme_params(_params)

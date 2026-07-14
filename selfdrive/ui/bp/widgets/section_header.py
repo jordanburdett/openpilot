@@ -53,6 +53,10 @@ class CollapsibleSectionHeader(Widget):
     self._expanded = initially_expanded
     self._managed_items: list[Widget] = []
     self._item_visible: dict[int, bool] = {}
+    # Nested CollapsibleSectionHeaders: a header's own managed_items only cover its direct
+    # children, so collapsing it hides those children's *header lines* but not their
+    # grandchildren (which the nested header manages independently). Cascade collapse to fix.
+    self._nested_headers: list["CollapsibleSectionHeader"] = []
     self.set_rect(rl.Rectangle(0, 0, SECTION_HEADER_WIDTH, COLLAPSIBLE_HEADER_HEIGHT))
     self.set_click_callback(self._toggle)
 
@@ -60,6 +64,10 @@ class CollapsibleSectionHeader(Widget):
     """Register the items this header controls and apply initial visibility."""
     self._managed_items = list(items)
     self._apply_visibility()
+
+  def set_nested_headers(self, headers: list["CollapsibleSectionHeader"]) -> None:
+    """Register nested sub-headers so collapsing this section also collapses them."""
+    self._nested_headers = list(headers)
 
   def set_item_visible(self, item: Widget, visible: bool) -> None:
     """Control whether a managed item is allowed to show when the section is expanded."""
@@ -70,6 +78,9 @@ class CollapsibleSectionHeader(Widget):
   def _toggle(self) -> None:
     self._expanded = not self._expanded
     self._apply_visibility()
+    if not self._expanded:
+      for header in self._nested_headers:
+        header.collapse()
 
   def _apply_visibility(self) -> None:
     for item in self._managed_items:
@@ -77,6 +88,8 @@ class CollapsibleSectionHeader(Widget):
 
   def collapse(self) -> None:
     self._expanded = False
+    for header in self._nested_headers:
+      header.collapse()
     self._apply_visibility()
 
   def show_event(self) -> None:

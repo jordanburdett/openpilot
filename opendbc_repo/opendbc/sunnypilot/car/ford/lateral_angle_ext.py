@@ -102,11 +102,14 @@ class LateralAngleExt:
     self.path_angle_gain_highC_highV = 1.0  # gain at high speed, high curvature
     self.bp_path_angle_gain_lowC_highV = 1.0
     self.bp_path_angle_gain_highC_highV = 1.0
-    # User-tunable "feel" multipliers: read from FordAngleLowSpeedFactor / FordAngleHighSpeedFactor params.
+    # User-tunable "feel" multipliers: read from FordLowSpeedFactor_ang / FordHighSpeedFactor_ang params.
     self.low_speed_curv_factor = 1.0
     self.high_speed_curv_factor = 1.0
     self.bp_low_speed_curv_factor = 1.0
     self.bp_high_speed_curv_factor = 1.0
+    # BluePilot: angle mode's own lane-change scaling factor, independent of curvature mode's
+    # lane_change_factor_high_curv -- angle needs a boost (>1) where curvature needs a cut (<1).
+    self.lane_change_factor_high_ang = 1.0
     # Telemetry: variable curvature lookup time used this frame (s)
     self.bp_curvature_lookup_time = _VLT_T_EXTRA_MAX + 0.3725  # warm start at ~0.5s
     # BluePilot: error-clipped kappa path_angle was derived from -- carcontroller.py reads this as
@@ -133,8 +136,8 @@ class LateralAngleExt:
     self.path_angle_gain_lowC_highV = low
     self.path_angle_gain_highC_highV = high
     if params is not None and hasattr(params, "get"):
-      for attr, key in (("low_speed_curv_factor", "FordAngleLowSpeedFactor"),
-                        ("high_speed_curv_factor", "FordAngleHighSpeedFactor")):
+      for attr, key in (("low_speed_curv_factor", "FordLowSpeedFactor_ang"),
+                        ("high_speed_curv_factor", "FordHighSpeedFactor_ang")):
         try:
           raw = params.get(key, return_default=True)
           if raw is not None and raw != b"":
@@ -142,6 +145,13 @@ class LateralAngleExt:
               float(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw), 0.5, 1.5)))
         except Exception:
           pass
+      try:
+        raw = params.get("lane_change_factor_high_ang", return_default=True)
+        if raw is not None and raw != b"":
+          self.lane_change_factor_high_ang = float(clip(
+            float(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw), 0.85, 1.50))
+      except Exception:
+        pass
 
   def update_angle_strategy(self, CC, CS, actuators, CP):
     """
@@ -246,7 +256,7 @@ class LateralAngleExt:
       self.lane_change = False
 
     lane_change_factor = interp(
-      v_ego, self.lane_change_factor_bp, [self.lane_change_factor_low, self.lane_change_factor_high]
+      v_ego, self.lane_change_factor_bp, [self.lane_change_factor_low, self.lane_change_factor_high_ang]
     )
     if self.lane_change and self.model is not None:
       if self.model.meta.laneChangeDirection == 1 and requested_curvature < 0:
