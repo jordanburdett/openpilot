@@ -80,6 +80,7 @@ class BluePilotLayout(Widget):
       ("disable_ford_radar_UI", self._disable_ford_radar),
       ("BpShowLateralControl", self._show_lateral_control),
       ("BPUIDebugLog", self._ui_debug_log),
+      ("BPUseKonik", self._use_konik),
     )
 
     ui_state.add_offroad_transition_callback(self._update_toggles)
@@ -396,6 +397,15 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
+    # Use Konik instead of comma connect toggle
+    self._use_konik = toggle_item(
+      lambda: tr("Use Konik instead of comma connect"),
+      lambda: tr("Send routes, location & telemetry to Konik (stable.konik.ai) instead of comma connect. Reboot to apply; the dongle ID switches automatically. Pair at stable.konik.ai on first use. Switching back restores your comma dongle ID."),
+      initial_state=self._safe_get_bool(self._params, "BPUseKonik"),
+      callback=self._on_use_konik_toggled,
+      icon="warning.png"
+    )
+
     # Lane line feedback trim — toggle + tuning floats
     # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
     primary_lat_idx = PrimaryLateralControl(self._params.get("FordPrefLateralControl", return_default=True) or 0)
@@ -551,6 +561,7 @@ class BluePilotLayout(Widget):
         self._preferred_network_btn,
         self._clear_model_cache_btn,
         self._ui_debug_log,
+        self._use_konik,
         self._reset_menu_btn,
       ]) +
       _section(tr("Vehicle"), [
@@ -596,6 +607,17 @@ class BluePilotLayout(Widget):
     except UnknownKeyName:
       pass  # Param not available in dev environment
     self._update_toggles(just_toggled={param: state})
+
+  def _on_use_konik_toggled(self, state: bool):
+    """Konik/comma server switch takes effect at launch, so offer a reboot right away."""
+    self._toggle_callback(state, "BPUseKonik")
+    dialog = ConfirmDialog(tr("Server change requires a reboot to take effect. Reboot now?"),
+                           tr("Reboot"), callback=self._handle_konik_reboot)
+    gui_app.push_widget(dialog)
+
+  def _handle_konik_reboot(self, result):
+    if result == DialogResult.CONFIRM:
+      self._params.put_bool("DoReboot", True)
 
   def _on_blinker_pause_changed(self, state: bool) -> None:
     self._toggle_callback(state, "BlinkerPauseLaneChange")

@@ -57,6 +57,8 @@ class BluePilotLayoutMici(NavScroller):
     )
     self.clear_model_cache.set_click_callback(self._clear_model_cache)
     self.ui_debug_log = BigParamControlBP("ui debug logging", "BPUIDebugLog")
+    self.use_konik = BigParamControlBP("use Konik instead of comma connect", "BPUseKonik",
+                                       toggle_callback=self._on_konik_toggled)
 
     # Primary lateral control selector lives above the lat sub-panel
     self.primary_lateral_control = BigMultiParamToggleBP(
@@ -99,11 +101,13 @@ class BluePilotLayoutMici(NavScroller):
       long_btn,
       self.ui_debug_log,
       self.clear_model_cache,
+      self.use_konik,
     ])
 
     self._refresh_toggles = (
       ("EnableWebRoutesServer", self.enable_web_routes),
       ("BPUIDebugLog", self.ui_debug_log),
+      ("BPUseKonik", self.use_konik),
     )
 
     ui_state.add_offroad_transition_callback(self._update_toggles)
@@ -188,6 +192,17 @@ class BluePilotLayoutMici(NavScroller):
       tr("clear model runner cache and reboot?"),
       icon,
       confirm_callback=do_clear,
+    )
+    gui_app.push_widget(dialog)
+
+  def _on_konik_toggled(self, _checked: bool):
+    # Konik/comma server switch takes effect at launch, so offer a reboot right away.
+    # Backing out of the dialog keeps the toggle; the switch then applies on the next reboot.
+    icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+    dialog = BigConfirmationDialog(
+      tr("reboot to switch servers?"),
+      icon,
+      confirm_callback=lambda: self._params.put_bool("DoReboot", True, block=False),
     )
     gui_app.push_widget(dialog)
 

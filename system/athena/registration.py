@@ -14,6 +14,10 @@ from openpilot.system.hardware import HARDWARE, PC
 from openpilot.system.hardware.hw import Paths
 from openpilot.common.swaglog import cloudlog
 
+# BluePilot: comma connect <-> Konik dongle ID switching
+from bluepilot.backend_switch import reconcile_backend
+# End BluePilot
+
 
 UNREGISTERED_DONGLE_ID = "UnregisteredDevice"
 
@@ -34,8 +38,14 @@ def register(show_spinner=False) -> str | None:
   """
   params = Params()
 
+  # BluePilot: swap/clear DongleId when the BPUseKonik toggle changed backends. When Konik
+  # is active, skip the /persist comma dongle ID restore below — it would short-circuit
+  # registration and Konik's server would never see the device.
+  use_konik = reconcile_backend(params)
+  # End BluePilot
+
   dongle_id: str | None = params.get("DongleId")
-  if dongle_id is None and Path(Paths.persist_root()+"/comma/dongle_id").is_file():
+  if dongle_id is None and not use_konik and Path(Paths.persist_root()+"/comma/dongle_id").is_file():  # BluePilot: skip on Konik
     # not all devices will have this; added early in comma 3X production (2/28/24)
     with open(Paths.persist_root()+"/comma/dongle_id") as f:
       dongle_id = f.read().strip()
