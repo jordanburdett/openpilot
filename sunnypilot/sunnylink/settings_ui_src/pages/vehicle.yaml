@@ -18,6 +18,12 @@ sections:
     widget: toggle
     title: '[System] UI Debug Logging'
     description: Log UI state transitions for diagnosing rendering issues on device.
+  - key: BPUseKonik
+    widget: toggle
+    title: '[System] Use Konik instead of comma connect'
+    description: Send routes, location & telemetry to Konik (stable.konik.ai) instead of comma connect. Reboot to apply;
+      the dongle ID switches automatically. Pair at stable.konik.ai on first use. Switching back restores your comma dongle ID.
+    needs_onroad_cycle: true
   # --- Vehicle ---
   - key: send_hands_free_cluster_msg
     widget: toggle
@@ -72,6 +78,10 @@ sections:
     widget: toggle
     title: '[Visuals] Animate Steering Wheel'
     description: Rotate the steering wheel icon to match the current steering angle.
+  - key: BpShowLateralControl
+    widget: toggle
+    title: '[Visuals] Show Lateral Control Mode'
+    description: Display the lateral control mode overlay on the steering wheel icon.
   - key: mici_complication
     widget: multiple_button
     title: '[Visuals] Lower Right Display (C4)'
@@ -202,10 +212,6 @@ sections:
     - type: param
       key: BlinkerPauseLaneChange
       equals: true
-  - key: BpShowLateralControl
-    widget: toggle
-    title: '[Lateral Tuning] Show Lateral Control Mode'
-    description: Display the lateral control mode overlay on the steering wheel icon.
   # Angle-mode tuning (hidden unless Primary Control Variable = Angle)
   - key: FordLowSpeedFactor_ang
     widget: option
