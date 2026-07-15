@@ -8,12 +8,16 @@ from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
+# BluePilot: Override upstream Mici torque bar with BP shared state math.
+from openpilot.selfdrive.ui.bp.mici.onroad.torque_bar_bp import TorqueBarBP as TorqueBar
 
 class MiciHudRendererBP(HudRenderer):
   """BluePilot MICI HudRenderer with brake status coloring and powerflow gauge."""
 
   def __init__(self):
     super().__init__()
+    # BluePilot: HudRenderer initializes upstream TorqueBar; replace it with ours.
+    self._torque_bar = TorqueBar()
     self._bp_params = Params()
     self._brakes_on = False
     self._power_flow = MiciPowerflowGauge()
