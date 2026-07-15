@@ -171,6 +171,13 @@ sections:
     description: Ignore the vehicle radar and drive leads exclusively from the vision model. Requires reboot.
     needs_onroad_cycle: true
   # --- Lateral Tuning ---
+  # Mirrors the on-device BluePilot menu: disable toggle and mode selector up top, mode-agnostic
+  # items next, then the angle-only and curvature-only groups (hidden when the other control
+  # scheme is selected; param keys carry the matching _ang/_curv suffix).
+  - key: disable_BP_lat_UI
+    widget: toggle
+    title: '[Lateral Tuning] Disable BP Lateral Control'
+    description: Disable BluePilot 4-signal Ford lateral control.
   - key: FordPrefLateralControl
     widget: multiple_button
     title: '[Lateral Tuning] Primary Control Variable'
@@ -180,9 +187,29 @@ sections:
       label: Curvature
     - value: 1
       label: Angle
-  - key: FordAngleLowSpeedFactor
+  - key: BlinkerPauseLaneChange
+    widget: toggle
+    title: '[Lateral Tuning] Disable Lane Change Under Speed'
+    description: Pause lateral control when the blinker is on and below the minimum speed.
+  - key: BlinkerMinLateralControlSpeed
     widget: option
-    title: '[Lateral Tuning] Low Speed Adjustment Factor'
+    title: '[Lateral Tuning] Minimum Speed to Pause Lane Change'
+    description: Below this speed, lateral control is paused when the blinker is active.
+    min: 5
+    max: 50
+    step: 1
+    enablement:
+    - type: param
+      key: BlinkerPauseLaneChange
+      equals: true
+  - key: BpShowLateralControl
+    widget: toggle
+    title: '[Lateral Tuning] Show Lateral Control Mode'
+    description: Display the lateral control mode overlay on the steering wheel icon.
+  # Angle-mode tuning (hidden unless Primary Control Variable = Angle)
+  - key: FordLowSpeedFactor_ang
+    widget: option
+    title: '[Lateral Tuning] Low Speed Adjustment Factor (Angle)'
     description: Scales the low-speed steering response in angle mode (0.5-1.5). Default 1.0.
     min: 0.5
     max: 1.5
@@ -191,9 +218,9 @@ sections:
     - type: param
       key: FordPrefLateralControl
       equals: 1
-  - key: FordAngleHighSpeedFactor
+  - key: FordHighSpeedFactor_ang
     widget: option
-    title: '[Lateral Tuning] High Speed Adjustment Factor'
+    title: '[Lateral Tuning] High Speed Adjustment Factor (Angle)'
     description: Scales the high-speed steering response in angle mode (0.5-1.5). Default 1.0.
     min: 0.5
     max: 1.5
@@ -202,33 +229,129 @@ sections:
     - type: param
       key: FordPrefLateralControl
       equals: 1
-  - key: disable_BP_lat_UI
-    widget: toggle
-    title: '[Lateral Tuning] Disable BP Lateral Control'
-    description: Disable BluePilot 4-signal Ford lateral control.
-  - key: BlinkerPauseLaneChange
-    widget: toggle
-    title: '[Lateral Tuning] Disable Lane Change Under Speed'
-    description: Pause lateral control when the blinker is on and below the minimum speed.
-  - key: lane_change_factor_high
+  - key: lane_change_factor_high_ang
     widget: option
-    title: '[Lateral Tuning] Lane Change Factor High'
-    description: Scales steering during a lane change. <1.0 reduces (curvature control); >1.0 boosts (angle control).
-    min: 0.5
-    max: 2.0
+    title: '[Lateral Tuning] Lane Change Factor High (Angle)'
+    description: Scales steering during a lane change in angle mode. Values >1.0 boost it.
+    min: 0.85
+    max: 1.5
     step: 0.05
-  - key: custom_path_offset
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 1
+  # Curvature-mode tuning (hidden unless Primary Control Variable = Curvature)
+  - key: enable_human_turn_detection_curv
+    widget: toggle
+    title: '[Lateral Tuning] Enable Human Turn Detection (Curvature)'
+    description: Enable detection of human-initiated turns.
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+  - key: lane_change_factor_high_curv
     widget: option
-    title: '[Lateral Tuning] In-Lane Offset'
+    title: '[Lateral Tuning] Lane Change Factor High (Curvature)'
+    description: Scales steering during a lane change in curvature mode. Values <1.0 reduce it.
+    min: 0.5
+    max: 1.0
+    step: 0.05
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+  - key: enable_lane_positioning_curv
+    widget: toggle
+    title: '[Lateral Tuning] Enable Lane Positioning (Curvature)'
+    description: Enable custom lane positioning controls.
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+  - key: custom_path_offset_curv
+    widget: option
+    title: '[Lateral Tuning] In-Lane Offset (Curvature)'
     description: Adjust the in-lane offset (-0.5 to 0.5 m).
     min: -0.5
     max: 0.5
     step: 0.05
     unit: m
-  - key: BpShowLateralControl
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+    enablement:
+    - type: param
+      key: enable_lane_positioning_curv
+      equals: true
+  - key: enable_lane_full_mode_curv
     widget: toggle
-    title: '[Lateral Tuning] Show Lateral Control Mode'
-    description: Display the lateral control mode overlay on the steering wheel icon.
+    title: '[Lateral Tuning] Enable Lanefull Mode (Curvature)'
+    description: Enable lanefull mode for lane positioning.
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+    enablement:
+    - type: param
+      key: enable_lane_positioning_curv
+      equals: true
+  - key: custom_profile_curv
+    widget: toggle
+    title: '[Lateral Tuning] Use Custom Tuning Profile (Curvature)'
+    description: Enable custom tuning profile settings.
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+  - key: pc_blend_ratio_high_C_UI_curv
+    widget: option
+    title: '[Lateral Tuning] Predicted Curvature Blend Ratio High (Curvature)'
+    description: Adjust the high curvature blend ratio (0.0-1.0).
+    min: 0.0
+    max: 1.0
+    step: 0.05
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+    enablement:
+    - type: param
+      key: custom_profile_curv
+      equals: 1
+  - key: pc_blend_ratio_low_C_UI_curv
+    widget: option
+    title: '[Lateral Tuning] Predicted Curvature Blend Ratio Low (Curvature)'
+    description: Adjust the low curvature blend ratio (0.0-1.0).
+    min: 0.0
+    max: 1.0
+    step: 0.05
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+    enablement:
+    - type: param
+      key: custom_profile_curv
+      equals: 1
+  - key: LC_PID_gain_UI_curv
+    widget: option
+    title: '[Lateral Tuning] Centering PID Gain (Curvature)'
+    description: PID gain for the curvature-mode centering controller (only effective when the custom tuning profile is enabled).
+    min: 0.0
+    max: 50.0
+    step: 0.5
+    visibility:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 0
+    enablement:
+    - type: param
+      key: enable_lane_positioning_curv
+      equals: true
+    - type: param
+      key: custom_profile_curv
+      equals: 1
 - id: hyundai
   title: Hyundai / Kia / Genesis Settings
   description: ''
