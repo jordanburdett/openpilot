@@ -244,7 +244,13 @@ class LateralAngleExt:
     _dbc_sat = (self.path_angle_last >= FORD_DBC_PATH_ANGLE_MAX * 0.90 or
                 self.path_angle_last <= FORD_DBC_PATH_ANGLE_MIN * 0.90)
     _in_hard_sat = _pscm_lim >= 2 or _dbc_sat
-    _desired_falling = abs(desired_curvature) < abs(self._desired_curvature_last) - 0.002
+    # BluePilot: per-call delta threshold. The original 0.002 was authored 2026-05-07 on
+    # bp-sid-simple (9c3d000fd), which ran STEER_STEP=1 (true 100Hz, switched 2026-04-22) -- so it
+    # was tuned to trigger on planner unwind faster than 0.2 (1/m)/s. Scaled x5 here to restore
+    # that same real-world trigger rate on this branch's actual 20Hz cadence; unscaled it fired at
+    # 0.04 (1/m)/s, collapsing the model blend on mild straightening instead of genuine exits.
+    # Same bug class and fix as _PSCM_SAT_UNWIND_RATE and _soft_roc above.
+    _desired_falling = abs(desired_curvature) < abs(self._desired_curvature_last) - 0.010
     _on_exit_near_limit = not _kappa_entering and (_pscm_lim >= 1 or _in_hard_sat or _desired_falling)
     b_blend = float(clip(b * 0.25, 0.0, 1.0)) if _on_exit_near_limit else b
     requested_curvature = predicted_curvature * b_blend + desired_curvature * (1.0 - b_blend)
