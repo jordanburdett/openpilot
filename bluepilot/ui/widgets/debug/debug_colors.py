@@ -63,6 +63,9 @@ class DebugColors:
   ACCENT_FIRMWARE = rl.Color(26, 188, 156, 255)
   ACCENT_DEVICE = rl.Color(149, 165, 166, 255)
 
+  # Sliding speed-position indicator (angle-factor adjuster)
+  SPEED_HIGHLIGHT = rl.Color(70, 130, 180, 90)
+
   # Card separator
   SEPARATOR = rl.Color(255, 255, 255, 30)
 
