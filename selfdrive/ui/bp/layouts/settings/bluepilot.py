@@ -60,6 +60,7 @@ class BluePilotLayout(Widget):
       ("send_hands_free_cluster_msg", self._show_hands_free_ui),
       ("BPDisableLaneLineStatusColor", self._disable_lane_line_status_color),
       ("BPHideCameraView", self._hide_camera_view),
+      ("BPRadRacerTheme", self._rad_racer_theme),
       ("BPRainbowLines", self._rainbow_lane_lines),
       ("ShowBlindspotOverlay", self._show_blindspot),
       ("ShowBrakeStatus", self._show_brake_status),
@@ -112,6 +113,15 @@ class BluePilotLayout(Widget):
       lambda: tr("Disable camera feed & only show lane lines and model path."),
       initial_state=self._safe_get_bool(self._params, "BPHideCameraView"),
       callback=lambda state: self._toggle_callback(state, "BPHideCameraView"),
+      icon="chffr_wheel.png"
+    )
+
+    # Rad Racer 8-bit theme toggle
+    self._rad_racer_theme = toggle_item(
+      lambda: tr("8-Bit Racer Theme"),
+      lambda: tr("Retro racing game onroad view: hides the camera, draws the road as green game lines, and shows a bottom gauge cluster."),
+      initial_state=self._safe_get_bool(self._params, "BPRadRacerTheme"),
+      callback=lambda state: self._toggle_callback(state, "BPRadRacerTheme"),
       icon="chffr_wheel.png"
     )
 
@@ -572,6 +582,7 @@ class BluePilotLayout(Widget):
         self._hide_onroad_border,
         self._disable_lane_line_status_color,
         self._hide_camera_view,
+        self._rad_racer_theme,
         self._rainbow_lane_lines,
         self._show_blindspot,
         self._show_brake_status,

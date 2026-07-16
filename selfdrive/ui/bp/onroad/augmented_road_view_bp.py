@@ -15,6 +15,7 @@ from openpilot.selfdrive.ui.bp.onroad.hybrid_battery_gauge_arched import HybridB
 from openpilot.selfdrive.ui.bp.onroad.power_flow_gauge import PowerFlowGauge
 from openpilot.selfdrive.ui.bp.onroad.powerflow_gauge_arched import PowerflowGaugeArched, POWERFLOW_ANGLE_SPAN
 from openpilot.selfdrive.ui.bp.onroad.torque_bar_renderer_bp import TorqueBarRendererBP
+from openpilot.selfdrive.ui.bp.onroad.rad_racer_theme import RadRacerTheme
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import ConfidenceBallTiciBP
 from openpilot.selfdrive.ui.onroad.driver_state import BTN_SIZE
 from openpilot.selfdrive.ui.sunnypilot.onroad.developer_ui import DeveloperUiState, get_bottom_dev_ui_offset
@@ -80,6 +81,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     except (TypeError, ValueError):
       self._cached_gauge_size = 2
 
+    # BluePilot: Rad Racer 8-bit theme
+    self._rad_racer_theme = RadRacerTheme()
+    self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
+
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
     pass
@@ -101,6 +106,8 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       except (TypeError, ValueError):
         self._cached_gauge_size = 2
       self._hybrid_gauge_style = GaugeStyle(self._bp_params.get("FordPrefGaugeStyle", return_default=True) or 0)
+      # BluePilot: Rad Racer theme toggle
+      self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
@@ -134,6 +141,11 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     # Render the base camera view. Minimal Driving View suppression lives in CameraViewBP.
     CameraViewBP._render(self, rect)
+
+    # BluePilot: Rad Racer 8-bit theme takes over the whole scene (skips HUD/gauges/ball)
+    if self._rad_racer_active:
+      self._render_rad_racer_scene(rect)
+      return
 
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)
@@ -212,6 +224,44 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     rl.end_scissor_mode()
 
     # BluePilot: Conditionally draw border
+    if not self._hide_onroad_border:
+      self._draw_border(rect)
+
+  def _render_rad_racer_scene(self, rect: rl.Rectangle):
+    """Render the full Rad Racer 8-bit scene: skyline, road, sprites, gauge cluster.
+
+    Called from _render with scissor mode already active on content_rect; ends
+    scissor mode and draws the border before returning (mirrors the stock path).
+    """
+    content_rect = self._content_rect
+
+    # Sky/signs project car-space points before the model road is rendered.
+    self.model_renderer.prepare_projection(content_rect)
+
+    # Sky, stars, skyline, roadside signs (behind the road)
+    self._rad_racer_theme.render_background(content_rect, self.model_renderer)
+
+    # Green game road (ModelRendererBP handles the 8-bit styling internally)
+    self.model_renderer.render(content_rect)
+
+    # Blindspot red edges stay on — safety overlay
+    self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)
+
+    # Gauge cluster panel first, then sprites so the ego car overlaps the panel edge
+    cluster_top = self._rad_racer_theme.cluster_top(content_rect)
+    self._torque_bar.update()
+    self._rad_racer_theme.render_cluster(content_rect, self._torque_bar)
+    self._rad_racer_theme.render_foreground(content_rect, self.model_renderer, cluster_top)
+
+    # Driver monitor floats bottom-left of the road view, just above the gauge cluster
+    self.driver_state_renderer.render(self._rad_racer_theme.driver_monitor_rect(content_rect))
+
+    # Alerts always on top
+    self.alert_renderer.render(content_rect)
+
+    bp_ui_log.scissor("AugRoadView", "end (rad racer)")
+    rl.end_scissor_mode()
+
     if not self._hide_onroad_border:
       self._draw_border(rect)
 

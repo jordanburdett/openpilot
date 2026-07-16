@@ -2135,6 +2135,22 @@
           "description": "Disable camera feed & only show lane lines and model path."
         },
         {
+          "key": "BPRadRacerTheme",
+          "widget": "toggle",
+          "title": "[Visuals] 8-Bit Racer Theme (C3X)",
+          "description": "Retro 8-bit racing game onroad view: hides the camera feed, draws the road as green game lines, and moves all metrics into a gauge cluster at the bottom of the screen.",
+          "visibility": [
+            {
+              "type": "not",
+              "condition": {
+                "type": "capability",
+                "field": "device_type",
+                "equals": "mici"
+              }
+            }
+          ]
+        },
+        {
           "key": "BPRainbowLines",
           "widget": "toggle",
           "title": "[Visuals] Rainbow Lane Lines",
