@@ -14,6 +14,11 @@ from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item, int_control_item
 from openpilot.selfdrive.ui.bp.widgets.section_header import CollapsibleSectionHeader
+from openpilot.selfdrive.ui.bp.lib.steering_wheel_style import (
+  ensure_steering_wheel_icon_style_initialized,
+  get_steering_wheel_icon_style,
+  SteeringWheelIconStyle,
+)
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import GaugeStyle
 
@@ -175,6 +180,17 @@ class BluePilotLayout(Widget):
       lambda: tr("Rotate the steering wheel icon to match the current steering angle."),
       initial_state=self._safe_get_bool(self._params, "BPAnimateSteeringWheel"),
       callback=lambda state: self._toggle_callback(state, "BPAnimateSteeringWheel"),
+      icon="chffr_wheel.png"
+    )
+
+    wheel_style_idx = int(ensure_steering_wheel_icon_style_initialized(self._params, SteeringWheelIconStyle.COMMA_3X))
+    self._wheel_icon_style_btn = multiple_button_item(
+      lambda: tr("Wheel Icon Style"),
+      lambda: tr("Toggle wheel icon style between Comma 4 and Comma 3x wheel"),
+      buttons=[lambda: tr("Comma 4"), lambda: tr("Comma 3x")],
+      button_width=225,
+      callback=self._set_wheel_icon_style,
+      selected_index=wheel_style_idx,
       icon="chffr_wheel.png"
     )
 
@@ -589,6 +605,7 @@ class BluePilotLayout(Widget):
         self._show_brake_status,
         self._show_confidence_ball,
         self._animate_steering_wheel,
+        self._wheel_icon_style_btn,
         self._show_ford_radar_overlay,
         self._radar_overlay_size_btn,
         self._show_hybrid_battery_status,
@@ -682,6 +699,9 @@ class BluePilotLayout(Widget):
     for key, item in self._refresh_toggles:
       state = fresh[key] if key in fresh else self._safe_get_bool(ui_state.params, key)
       item.action_item.set_state(state)
+
+    wheel_style_idx = int(get_steering_wheel_icon_style(ui_state.params, SteeringWheelIconStyle.COMMA_3X))
+    self._wheel_icon_style_btn.action_item.set_selected_button(wheel_style_idx)
 
     # Update button enabled states
     self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
@@ -859,6 +879,10 @@ class BluePilotLayout(Widget):
   def _set_overlay_size(self, button_index: int):
     """Handle overlay size button selection."""
     self._params.put("FordPrefRadarOverlaySize", button_index)
+
+  def _set_wheel_icon_style(self, button_index: int):
+    """Handle wheel icon style: 0 = comma 4, 1 = comma 3X."""
+    self._params.put("BPSteeringWheelIconStyle", button_index)
 
   def _set_hybrid_gauge_size(self, button_index: int):
     """Handle hybrid gauge size button selection. Buttons are 0/1/2, param stores 1/2/3."""

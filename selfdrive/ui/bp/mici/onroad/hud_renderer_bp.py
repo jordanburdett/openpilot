@@ -4,6 +4,11 @@ from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.bp.mici.onroad.powerflow_gauge import MiciPowerflowGauge
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.selfdrive.ui.bp.lib.steering_wheel_style import (
+  ensure_steering_wheel_icon_style_initialized,
+  get_steering_wheel_icon_style,
+  SteeringWheelIconStyle,
+)
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.application import gui_app
@@ -21,6 +26,10 @@ class MiciHudRendererBP(HudRenderer):
     self._bp_params = Params()
     self._brakes_on = False
     self._power_flow = MiciPowerflowGauge()
+    self._txt_wheel_comma_3x = gui_app.texture("icons/chffr_wheel.png", self._txt_wheel.width, self._txt_wheel.height)
+    self._animate_steering_wheel = self._bp_params.get_bool("BPAnimateSteeringWheel")
+    self._wheel_icon_style = ensure_steering_wheel_icon_style_initialized(self._bp_params, SteeringWheelIconStyle.COMMA_4)
+    self._animate_wheel_param_counter = 0
     self.show_lateral_control = False
     self.disable_bp_lat = True
     self.primary_control = PrimaryLateralControl.curvature
@@ -31,6 +40,13 @@ class MiciHudRendererBP(HudRenderer):
 
   def _update_state(self) -> None:
     super()._update_state()
+
+    # BluePilot: Refresh the shared wheel-animation toggle periodically.
+    self._animate_wheel_param_counter += 1
+    if self._animate_wheel_param_counter >= 60:
+      self._animate_wheel_param_counter = 0
+      self._animate_steering_wheel = self._bp_params.get_bool("BPAnimateSteeringWheel")
+      self._wheel_icon_style = get_steering_wheel_icon_style(self._bp_params, SteeringWheelIconStyle.COMMA_4)
 
     if self._bp_params.get_bool("ShowBrakeStatus"):
       sm = ui_state.sm
@@ -61,7 +77,9 @@ class MiciHudRendererBP(HudRenderer):
 
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
     """Override to add brake status coloring to wheel icon, powerflow gauge, and lateral control overlay."""
-    wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else self._txt_wheel
+    normal_wheel_txt = self._txt_wheel_comma_3x if self._wheel_icon_style == SteeringWheelIconStyle.COMMA_3X else self._txt_wheel
+    # BluePilot: Preserve the upstream critical-alert wheel regardless of the user's normal wheel style.
+    wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else normal_wheel_txt
 
     bsm_detected = self._has_blind_spot_detected() if hasattr(self, '_has_blind_spot_detected') else False
 
@@ -81,7 +99,7 @@ class MiciHudRendererBP(HudRenderer):
 
     pos_x = int(rect.x + 21 + wheel_txt.width / 2)
     pos_y = int(rect.y + rect.height - 14 - wheel_txt.height / 2 + self._wheel_y_filter.x)
-    rotation = -ui_state.sm['carState'].steeringAngleDeg
+    rotation = -ui_state.sm['carState'].steeringAngleDeg if self._animate_steering_wheel else 0.0
 
     turn_intent_margin = 25
     self._turn_intent.render(rl.Rectangle(

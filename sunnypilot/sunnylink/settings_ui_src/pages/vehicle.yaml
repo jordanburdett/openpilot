@@ -85,6 +85,16 @@ sections:
     widget: toggle
     title: '[Visuals] Animate Steering Wheel'
     description: Rotate the steering wheel icon to match the current steering angle.
+  # ==================== BLUEPILOT SUNNYLINK WHEEL STYLE ====================
+  - key: BPSteeringWheelIconStyle
+    widget: multiple_button
+    title: '[Visuals] Wheel Icon Style'
+    description: Toggle wheel icon style between Comma 4 and Comma 3x wheel
+    options:
+    - value: 0
+      label: Comma 4
+    - value: 1
+      label: Comma 3x
   - key: BpShowLateralControl
     widget: toggle
     title: '[Visuals] Show Lateral Control Mode'

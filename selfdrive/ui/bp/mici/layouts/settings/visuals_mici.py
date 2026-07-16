@@ -2,6 +2,12 @@
 
 from collections.abc import Callable
 
+from openpilot.common.params import Params
+from openpilot.selfdrive.ui.bp.lib.steering_wheel_style import (
+  ensure_steering_wheel_icon_style_initialized,
+  get_steering_wheel_icon_style,
+  SteeringWheelIconStyle,
+)
 from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import (
   BigParamControlBP,
   BigMultiParamToggleBP,
@@ -29,6 +35,10 @@ class VisualsLayoutMici(NavScroller):
     self.show_blindspot_ui = BigParamControlBP("Show Blindspot Overlay", "ShowBlindspotOverlay")
     self.show_brake_status = BigParamControlBP("Show Brake Status", "ShowBrakeStatus")
     self.animate_steering_wheel = BigParamControlBP("Animate Steering Wheel", "BPAnimateSteeringWheel")
+    ensure_steering_wheel_icon_style_initialized(Params(), SteeringWheelIconStyle.COMMA_4)
+    self.wheel_icon_style = BigMultiParamToggleBP(
+      "Wheel Icon Style", "BPSteeringWheelIconStyle", ["Comma 4", "Comma 3x"],
+    )
     self.show_hybrid_power_flow = BigParamControlBP("Show Hybrid Power Flow", "FordPrefHybridPowerFlow")
     self.hybrid_power_flow_style = BigMultiParamToggleBoolBP(
       "Hybrid/EV Power Flow Style", "FordPrefHybridPowerFlowAlternate", ["flat", "round"],
@@ -44,6 +54,7 @@ class VisualsLayoutMici(NavScroller):
       self.show_blindspot_ui,
       self.show_brake_status,
       self.animate_steering_wheel,
+      self.wheel_icon_style,
       self.show_hybrid_power_flow,
       self.hybrid_power_flow_style,
     ])
@@ -82,3 +93,5 @@ class VisualsLayoutMici(NavScroller):
     ui_state.update_params()
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
+    wheel_style = get_steering_wheel_icon_style(ui_state.params, SteeringWheelIconStyle.COMMA_4)
+    self.wheel_icon_style.set_value(self.wheel_icon_style._options[int(wheel_style)])
