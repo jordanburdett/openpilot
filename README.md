@@ -138,7 +138,7 @@ Curvature and angle control no longer share any tuning values:
 * Cleaned up and reorganized comma 4 menus, with an on-device vehicle selector and integer/float value pickers on both platforms
 
 ### SunnyLink Remote Settings
-* **Ford BluePilot settings panel in sunnylink** - Configure BluePilot from the sunnylink interface, grouped by System, Vehicle, Visuals, Longitudinal Tuning, and Lateral Tuning
+* **Ford BluePilot settings under the "vehicle" panel in sunnylink** - Configure BluePilot from the sunnylink interface, grouped by System, Vehicle, Visuals, Longitudinal Tuning, and Lateral Tuning
 * Scheme-aware: angle and curvature tuning entries appear only when their control scheme is selected, with the same dependency gating as the on-device menu
 
 ### Konik Connect Option
