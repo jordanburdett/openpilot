@@ -24,15 +24,22 @@ class PairingDialog(NavWidget):
     self._last_qr_generation = float("-inf")
 
     self._txt_pair = gui_app.texture("icons_mici/settings/device/pair.png", 33, 60)
-    # BluePilot: pair with Konik when the "Use Konik instead of comma connect" toggle is on
-    pair_with = "Konik" if self._use_konik() else "comma connect"
-    self._pair_label = UnifiedLabel(f"pair with {pair_with}", font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
+    # BluePilot: pair with the selected connect backend (comma / Konik / offline)
+    self._pair_label = UnifiedLabel(f"pair with {self._pair_with_label()}", font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
 
-  def _use_konik(self) -> bool:
+  def _connect_backend(self) -> str:
     try:
-      return self._params.get_bool("BPUseKonik")
+      from bluepilot.backend_switch import get_connect_backend
+      return get_connect_backend(self._params)
     except Exception:
-      return False
+      return "comma"
+
+  def _pair_with_label(self) -> str:
+    try:
+      from bluepilot.backend_switch import backend_label
+      return backend_label(self._connect_backend())
+    except Exception:
+      return "comma connect"
 
   def _get_pairing_url(self) -> str:
     try:
@@ -41,7 +48,11 @@ class PairingDialog(NavWidget):
     except Exception as e:
       cloudlog.warning(f"Failed to get pairing token: {e}")
       token = ""
-    host = "stable.konik.ai" if self._use_konik() else "connect.comma.ai"
+    try:
+      from bluepilot.backend_switch import pairing_host
+      host = pairing_host(self._connect_backend())
+    except Exception:
+      host = "connect.comma.ai"
     return f"https://{host}/?pair={token}"
 
   def _generate_qr_code(self) -> None:

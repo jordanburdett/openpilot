@@ -81,7 +81,6 @@ class BluePilotLayout(Widget):
       ("disable_ford_radar_UI", self._disable_ford_radar),
       ("BpShowLateralControl", self._show_lateral_control),
       ("BPUIDebugLog", self._ui_debug_log),
-      ("BPUseKonik", self._use_konik),
     )
 
     ui_state.add_offroad_transition_callback(self._update_toggles)
@@ -407,13 +406,15 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
-    # Use Konik instead of comma connect toggle
-    self._use_konik = toggle_item(
-      lambda: tr("Use Konik instead of comma connect"),
-      lambda: tr("Send routes, location & telemetry to Konik (stable.konik.ai) instead of comma connect. Reboot to apply; the dongle ID switches automatically. Pair at stable.konik.ai on first use. Switching back restores your comma dongle ID."),
-      initial_state=self._safe_get_bool(self._params, "BPUseKonik"),
-      callback=self._on_use_konik_toggled,
-      icon="warning.png"
+    # Connect backend selector (Comma Connect / Konik Stable / Offline Mode)
+    self._connect_backend_dialog: MultiOptionDialog | None = None
+    self._connect_backend_action = ButtonAction(lambda: tr("SELECT"))
+    self._connect_backend_action.set_value(lambda: self._get_connect_backend_display())
+    self._connect_backend_btn = ListItem(
+      lambda: tr("Connect Backend"),
+      description=lambda: tr("Comma Connect uses stock servers. Konik Stable sends routes to stable.konik.ai (dongle ID switches automatically). Offline Mode points at unreachable hosts so uploads never succeed. Reboot to apply."),
+      action_item=self._connect_backend_action,
+      callback=self._select_connect_backend
     )
 
     # Lane line feedback trim — toggle + tuning floats
@@ -571,7 +572,7 @@ class BluePilotLayout(Widget):
         self._preferred_network_btn,
         self._clear_model_cache_btn,
         self._ui_debug_log,
-        self._use_konik,
+        self._connect_backend_btn,
         self._reset_menu_btn,
       ]) +
       _section(tr("Vehicle"), [
@@ -619,14 +620,52 @@ class BluePilotLayout(Widget):
       pass  # Param not available in dev environment
     self._update_toggles(just_toggled={param: state})
 
-  def _on_use_konik_toggled(self, state: bool):
-    """Konik/comma server switch takes effect at launch, so offer a reboot right away."""
-    self._toggle_callback(state, "BPUseKonik")
-    dialog = ConfirmDialog(tr("Server change requires a reboot to take effect. Reboot now?"),
-                           tr("Reboot"), callback=self._handle_konik_reboot)
-    gui_app.push_widget(dialog)
+  def _get_connect_backend_display(self) -> str:
+    try:
+      from bluepilot.backend_switch import backend_label, get_connect_backend
+      return backend_label(get_connect_backend(self._params))
+    except Exception:
+      return tr("Comma Connect")
 
-  def _handle_konik_reboot(self, result):
+  def _select_connect_backend(self):
+    from bluepilot.backend_switch import BACKEND_LABELS, BACKENDS, get_connect_backend
+
+    options = [BACKEND_LABELS[b] for b in BACKENDS]
+    current = self._get_connect_backend_display()
+    try:
+      prev_idx = BACKENDS.index(get_connect_backend(self._params))
+    except ValueError:
+      prev_idx = 0
+
+    def handle_selection(result):
+      if result == DialogResult.CONFIRM and self._connect_backend_dialog is not None:
+        selection = self._connect_backend_dialog.selection
+        try:
+          idx = options.index(selection)
+        except ValueError:
+          idx = 0
+        if idx != prev_idx:
+          try:
+            self._params.put("BPConnectBackend", idx)
+          except UnknownKeyName:
+            pass
+          self._connect_backend_action.set_value(self._get_connect_backend_display())
+          dialog = ConfirmDialog(tr("Server change requires a reboot to take effect. Reboot now?"),
+                                 tr("Reboot"), callback=self._handle_connect_backend_reboot)
+          gui_app.push_widget(dialog)
+        else:
+          self._connect_backend_action.set_value(self._get_connect_backend_display())
+      self._connect_backend_dialog = None
+
+    self._connect_backend_dialog = MultiOptionDialog(
+      tr("Select Connect Backend"),
+      options,
+      current,
+      callback=handle_selection
+    )
+    gui_app.push_widget(self._connect_backend_dialog)
+
+  def _handle_connect_backend_reboot(self, result):
     if result == DialogResult.CONFIRM:
       self._params.put_bool("DoReboot", True)
 

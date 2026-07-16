@@ -141,9 +141,9 @@ Curvature and angle control no longer share any tuning values:
 * **Ford BluePilot settings under the "vehicle" panel in sunnylink** - Configure BluePilot from the sunnylink interface, grouped by System, Vehicle, Visuals, Longitudinal Tuning, and Lateral Tuning
 * Scheme-aware: angle and curvature tuning entries appear only when their control scheme is selected, with the same dependency gating as the on-device menu
 
-### Konik Connect Option
-* **Use Konik instead of comma connect** - Optional toggle that points the device backend at Konik (stable.konik.ai) instead of comma connect
-* Dongle ID switches automatically between backends and is cached per backend, so switching is reversible in both directions with a reboot
+### Connect Backend
+* **Connect Backend** - Choose Comma Connect (stock servers), Konik Stable (stable.konik.ai), or Offline Mode (unreachable hosts so uploads never succeed)
+* Dongle ID switches automatically between Comma and Konik and is cached per backend, so switching is reversible in both directions with a reboot
 * Pairing QR codes and instructions follow the selected backend
 
 ### Visuals
@@ -165,7 +165,7 @@ The following settings are available in the BluePilot menu:
 
 **System:**
 * UI Debug Logging
-* Use Konik instead of comma connect
+* Connect Backend (Comma Connect / Konik Stable / Offline Mode)
 * Preferred WiFi Network
 * Clear Crashed Model
 * Reset Menu Layout
@@ -218,7 +218,7 @@ BluePilot 6.0 through 6.1 introduced the React-based BluePilot Portal PWA (home 
 
 ---
 
-By default, sunnypilot/bluepilot uploads the driving data to comma servers. You can also access your data through [comma connect](https://connect.comma.ai/). If the Konik option is enabled, driving data is sent to Konik (stable.konik.ai) instead.
+By default, sunnypilot/bluepilot uploads the driving data to comma servers. You can also access your data through [comma connect](https://connect.comma.ai/). The Connect Backend setting can instead send data to Konik (stable.konik.ai), or Offline Mode (unreachable hosts so uploads never succeed).
 
 sunnypilot/bluepilot is open source software. The user is free to disable data collection if they wish to do so.
 

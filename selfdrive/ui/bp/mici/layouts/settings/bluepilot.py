@@ -9,6 +9,8 @@ from openpilot.selfdrive.ui.bp.mici.widgets.button_bp import (
 )
 from openpilot.selfdrive.ui.bp.mici.widgets.web_server_qr_dialog import WebServerQRDialog
 from openpilot.selfdrive.ui.bp.mici.widgets.preferred_network_select import PreferredNetworkSelectMici
+from openpilot.selfdrive.ui.bp.mici.widgets.connect_backend_select import ConnectBackendSelectMici
+from bluepilot.backend_switch import BACKEND_LABELS, BACKENDS
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
@@ -57,8 +59,10 @@ class BluePilotLayoutMici(NavScroller):
     )
     self.clear_model_cache.set_click_callback(self._clear_model_cache)
     self.ui_debug_log = BigParamControlBP("ui debug logging", "BPUIDebugLog")
-    self.use_konik = BigParamControlBP("use Konik instead of comma connect", "BPUseKonik",
-                                       toggle_callback=self._on_konik_toggled)
+    self.connect_backend_btn = BigButtonBP(
+      tr("connect backend"), "", "icons_mici/settings/device/reboot.png", icon_size=80,
+    )
+    self.connect_backend_btn.set_click_callback(self._select_connect_backend)
 
     # Primary lateral control selector lives above the lat sub-panel
     self.primary_lateral_control = BigMultiParamToggleBP(
@@ -101,13 +105,12 @@ class BluePilotLayoutMici(NavScroller):
       long_btn,
       self.ui_debug_log,
       self.clear_model_cache,
-      self.use_konik,
+      self.connect_backend_btn,
     ])
 
     self._refresh_toggles = (
       ("EnableWebRoutesServer", self.enable_web_routes),
       ("BPUIDebugLog", self.ui_debug_log),
-      ("BPUseKonik", self.use_konik),
     )
 
     ui_state.add_offroad_transition_callback(self._update_toggles)
@@ -119,6 +122,7 @@ class BluePilotLayoutMici(NavScroller):
     self._update_toggles()
     self._wifi_manager.set_active(True)
     self.preferred_network_btn.set_value(self._get_preferred_network_display())
+    self.connect_backend_btn.set_value(self._get_connect_backend_display())
 
   def hide_event(self):
     super().hide_event()
@@ -195,16 +199,42 @@ class BluePilotLayoutMici(NavScroller):
     )
     gui_app.push_widget(dialog)
 
-  def _on_konik_toggled(self, _checked: bool):
-    # Konik/comma server switch takes effect at launch, so offer a reboot right away.
-    # Backing out of the dialog keeps the toggle; the switch then applies on the next reboot.
-    icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
-    dialog = BigConfirmationDialog(
-      tr("reboot to switch servers?"),
-      icon,
-      confirm_callback=lambda: self._params.put_bool("DoReboot", True, block=False),
+  def _get_connect_backend_display(self) -> str:
+    try:
+      raw = self._params.get("BPConnectBackend")
+      idx = int(raw) if raw not in (None, "") else 0
+      if 0 <= idx < len(BACKENDS):
+        return BACKEND_LABELS[BACKENDS[idx]]
+    except Exception:
+      pass
+    return BACKEND_LABELS[BACKENDS[0]]
+
+  def _select_connect_backend(self):
+    prev_idx = 0
+    try:
+      raw = self._params.get("BPConnectBackend")
+      prev_idx = int(raw) if raw not in (None, "") else 0
+    except (TypeError, ValueError):
+      prev_idx = 0
+
+    def on_selected(idx: int):
+      self.connect_backend_btn.set_value(self._get_connect_backend_display())
+      if idx == prev_idx:
+        return
+      # Backend switch takes effect at launch, so offer a reboot right away.
+      icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+      dialog = BigConfirmationDialog(
+        tr("reboot to switch servers?"),
+        icon,
+        confirm_callback=lambda: self._params.put_bool("DoReboot", True, block=False),
+      )
+      gui_app.push_widget(dialog)
+
+    panel = ConnectBackendSelectMici(
+      on_selected=on_selected,
+      on_dismiss=lambda: self.connect_backend_btn.set_value(self._get_connect_backend_display()),
     )
-    gui_app.push_widget(dialog)
+    gui_app.push_widget(panel)
 
   def _show_qr_dialog(self):
     if not self._params.get_bool("EnableWebRoutesServer"):
@@ -227,4 +257,5 @@ class BluePilotLayoutMici(NavScroller):
     ui_state.update_params()
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
+    self.connect_backend_btn.set_value(self._get_connect_backend_display())
     self._update_buttons()

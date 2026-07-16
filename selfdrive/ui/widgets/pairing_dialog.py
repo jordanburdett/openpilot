@@ -29,13 +29,12 @@ class PairingDialog(Widget):
     self._close_btn.set_click_callback(gui_app.pop_widget)
 
   def _pairing_host(self) -> str:
-    # BluePilot: pair with Konik when the "Use Konik instead of comma connect" toggle is on
+    # BluePilot: pair on the host for the selected connect backend
     try:
-      if self.params.get_bool("BPUseKonik"):
-        return "stable.konik.ai"
+      from bluepilot.backend_switch import get_connect_backend, pairing_host
+      return pairing_host(get_connect_backend(self.params))
     except Exception:
-      pass
-    return "connect.comma.ai"
+      return "connect.comma.ai"
 
   def _get_pairing_url(self) -> str:
     try:
