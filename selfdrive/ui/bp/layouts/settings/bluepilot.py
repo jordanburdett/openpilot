@@ -19,6 +19,11 @@ from openpilot.selfdrive.ui.bp.lib.steering_wheel_style import (
   get_steering_wheel_icon_style,
   SteeringWheelIconStyle,
 )
+from openpilot.selfdrive.ui.bp.lib.dm_icon_style import (
+  DMIconStyle,
+  ensure_dm_icon_style_initialized,
+  get_dm_icon_style,
+)
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import GaugeStyle
 
@@ -192,6 +197,17 @@ class BluePilotLayout(Widget):
       callback=self._set_wheel_icon_style,
       selected_index=wheel_style_idx,
       icon="chffr_wheel.png"
+    )
+
+    dm_style_idx = int(ensure_dm_icon_style_initialized(self._params, DMIconStyle.COMMA_3X))
+    self._dm_icon_style_btn = multiple_button_item(
+      lambda: tr("DM Icon Style"),
+      lambda: tr("Toggle Driver Monitoring icon style between Comma 4 and Comma 3x"),
+      buttons=[lambda: tr("Comma 4"), lambda: tr("Comma 3x")],
+      button_width=225,
+      callback=self._set_dm_icon_style,
+      selected_index=dm_style_idx,
+      icon="monitoring.png"
     )
 
     # Ford radar lead overlay toggle
@@ -606,6 +622,7 @@ class BluePilotLayout(Widget):
         self._show_confidence_ball,
         self._animate_steering_wheel,
         self._wheel_icon_style_btn,
+        self._dm_icon_style_btn,
         self._show_ford_radar_overlay,
         self._radar_overlay_size_btn,
         self._show_hybrid_battery_status,
@@ -702,6 +719,8 @@ class BluePilotLayout(Widget):
 
     wheel_style_idx = int(get_steering_wheel_icon_style(ui_state.params, SteeringWheelIconStyle.COMMA_3X))
     self._wheel_icon_style_btn.action_item.set_selected_button(wheel_style_idx)
+    dm_style_idx = int(get_dm_icon_style(ui_state.params, DMIconStyle.COMMA_3X))
+    self._dm_icon_style_btn.action_item.set_selected_button(dm_style_idx)
 
     # Update button enabled states
     self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
@@ -883,6 +902,10 @@ class BluePilotLayout(Widget):
   def _set_wheel_icon_style(self, button_index: int):
     """Handle wheel icon style: 0 = comma 4, 1 = comma 3X."""
     self._params.put("BPSteeringWheelIconStyle", button_index)
+
+  def _set_dm_icon_style(self, button_index: int):
+    """Handle DM icon style: 0 = comma 4, 1 = comma 3X."""
+    self._params.put("BPDMStylingChoice", button_index)
 
   def _set_hybrid_gauge_size(self, button_index: int):
     """Handle hybrid gauge size button selection. Buttons are 0/1/2, param stores 1/2/3."""

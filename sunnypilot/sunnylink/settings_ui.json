@@ -2221,6 +2221,22 @@
           ]
         },
         {
+          "key": "BPDMStylingChoice",
+          "widget": "multiple_button",
+          "title": "[Visuals] DM Icon Style",
+          "description": "Toggle Driver Monitoring icon style between Comma 4 and Comma 3x",
+          "options": [
+            {
+              "value": 0,
+              "label": "Comma 4"
+            },
+            {
+              "value": 1,
+              "label": "Comma 3x"
+            }
+          ]
+        },
+        {
           "key": "BpShowLateralControl",
           "widget": "toggle",
           "title": "[Visuals] Show Lateral Control Mode",

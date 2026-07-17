@@ -10,6 +10,8 @@ from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendere
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
 from openpilot.selfdrive.ui.bp.onroad.model_renderer_bp import ModelRendererBP
+from openpilot.selfdrive.ui.bp.onroad.driver_state_bp import DriverStateRendererBP
+from openpilot.selfdrive.ui.bp.lib.dm_icon_style import DMIconStyle
 from openpilot.selfdrive.ui.bp.onroad.hybrid_battery_gauge import HybridBatteryGauge
 from openpilot.selfdrive.ui.bp.onroad.hybrid_battery_gauge_arched import HybridBatteryGaugeArched, BATTERY_START_ANGLE
 from openpilot.selfdrive.ui.bp.onroad.power_flow_gauge import PowerFlowGauge
@@ -61,6 +63,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     self.model_renderer = ModelRendererBP()
     self._hud_renderer = HudRendererBP()
     self.alert_renderer = AlertRendererBP()
+    self.driver_state_renderer = DriverStateRendererBP(DMIconStyle.COMMA_3X)
     self._battery_gauge_bp = HybridBatteryGauge()
     self._power_flow_gauge = PowerFlowGauge()
     self._battery_gauge_arched = HybridBatteryGaugeArched()
