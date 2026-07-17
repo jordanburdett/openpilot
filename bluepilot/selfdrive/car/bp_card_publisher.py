@@ -18,6 +18,8 @@ def publish_controller_state_bp(CI, pm):
     cs_bp.angleRateLimited = getattr(CI.CC, "angleRateLimited", False)
     cs_bp.curvatureRateLimited = getattr(CI.CC, "curvatureRateLimited", False)
     cs_bp.curvatureDeviationLimited = getattr(CI.CC, "curvatureDeviationLimited", False)
+    cs_bp.humanTurnLateralPaused = bool(getattr(CI.CC, "humanTurnLateralPaused", False))
+    cs_bp.stallBlipActive = bool(getattr(CI.CC, "stallBlipActive", False))
     cs_bp_capnp = convert_to_capnp(cs_bp)
     cs_bp_send = messaging.new_message('controllerStateBP')
     cs_bp_send.valid = True

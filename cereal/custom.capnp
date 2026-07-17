@@ -475,6 +475,8 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   # (lateral_curv_ext.py or lateral_angle_ext.py) -- tells you what limited a maneuver: ROC
   # (angleRateLimited) vs deviation from current curvature (this).
   curvatureDeviationLimited @3 :Bool;
+  humanTurnLateralPaused @4 :Bool;  # angle mode: lateral forced inactive (mode 0) during a manual turn
+  stallBlipActive @5 :Bool;  # angle mode: brief mode-0 pulse resetting PSCM authority after a post-override stall
 }
 
 struct CarStateBP @0xb057204d7deadf3f {

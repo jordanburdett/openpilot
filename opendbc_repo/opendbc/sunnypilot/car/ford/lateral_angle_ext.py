@@ -11,13 +11,24 @@ blended with ``actuators.curvature`` per ``FordPathAngleBlendRatio`` (0 = planne
 trim -- an earlier port attempt piped a small additive trim onto path_angle through the
 curv-mode ``LC_PID_controller``, but it never actually tracked lane center correctly in this
 mode and was removed; only the DBC-required zero c0 remains.
+
+**Human-turn override**: while the driver manually turns (same sustained-press + angle criteria
+as ``lateral_curv_ext``, via the shared ``HumanTurnDetector``), lateral is forced inactive (mode
+0, all-zero signals) instead of winding path_angle into a stale command the PSCM has to reconcile
+on release -- on the Mach-E's PSCM that reconciliation cost 2-3 s of dead time before control
+resumed. Mode 0 is panda-clean by construction: every ford.h check has a legitimate
+!steer_control_enabled branch, so no reset-bypass latch involvement. On release, path_angle ramps
+back in from zero through the soft ROC below (no jump seed) -- generous at human-turn speeds, and
+admitted by ford.h's path_angle ROC check (2% looser) without any bypass.
 """
 import numpy as np
 from numpy import clip, interp
 
+from opendbc.car import DT_CTRL
 from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.ford.values import CAR, CarControllerParams
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralResult
+from opendbc.sunnypilot.car.ford.human_turn import HumanTurnDetector
 from opendbc.sunnypilot.car.ford.values_ext import BP_ANGLE_LIMITS
 from selfdrive.modeld.constants import ModelConstants
 
@@ -79,6 +90,29 @@ _VLT_KAPPA_TAPER = 0.020             # 1/m — no extra lookahead above this cur
 # 0.40 rad/s (23 deg/s) unwind rate on this branch's actual 20Hz cadence.
 _PSCM_SAT_UNWIND_RATE = 0.02        # rad/call (0.02 * 20Hz = 0.40 rad/s)
 
+# Post-override stall blip. Road test 2026-07-14 (route 886240741b067740/000000bd--feb980680f)
+# showed that after driver-touch episodes the Mach-E PSCM keeps reporting InProgress but honors
+# path_angle at only ~0.56x (healthy hands-free delivery on the same route: ~0.95 median). The
+# current-curvature deviation clip below then pins kappa_cmd at measured + CURVATURE_ERROR, so the
+# command can never lead the car enough to overcome the attenuation -- a stall equilibrium the
+# driver reads as "not engaging" (wire path_angle flat at ~4 deg for 4.5 s while desired kappa
+# climbed to 3x measured, EPS motor current ~0 A). A short mode-0 pulse -- the identical
+# panda-clean wire pattern the human-turn override sends, no ford.h involvement -- resets the
+# PSCM's authority, after which path_angle ramps back in from zero through the soft ROC.
+_STEER_DT = CarControllerParams.STEER_STEP * DT_CTRL  # 20 Hz lateral tick (matches human_turn.py)
+_STALL_GAP_MIN = 2.0 * CarControllerParams.CURVATURE_ERROR  # desired must lead measured by 2x the clip tolerance
+_STALL_HOLD_S = 0.5          # accumulated clip-binding time before a pulse fires
+_STALL_BLIP_FRAMES = 6       # mode-0 pulse length (6 frames @ 20 Hz = 300 ms; PSCM acked mode 0 in ~150 ms on-road)
+_STALL_COOLDOWN_S = 2.0      # re-arm delay after a pulse (release ramp + PSCM response time)
+_STALL_MAX_BLIPS = 3         # give up on a stuck episode; devLim telemetry keeps recording the stall
+# Proactive hand-off blip: any sustained driver press attenuates the PSCM (route 000000be seg 4:
+# 3 s of sub-45-deg circle-exit steering left it at ~0x delivery, and the reactive detector's
+# fire-after-the-stall-develops timing meant 2.4 s of dead-straight running into the next curve
+# before the pulse landed). Firing the same pulse on the falling edge of a sustained press resets
+# the PSCM while the car is straight and the command is small -- a 300 ms lateral gap right at
+# hand-off, imperceptible, instead of a missed curve. The reactive detector above stays as backstop.
+_PRESS_BLIP_MIN_S = 0.5      # press must last this long before its release earns a pulse
+
 
 def pscm_d_ref_m(v_ego_ms: float) -> float:
   v = max(float(v_ego_ms), 0.0)
@@ -122,6 +156,21 @@ class LateralAngleExt:
     self.sim_curvature_last = 0.0           # shadow curvature-mode last for the curvatureRateLimited sim
     # Exit detection: track previous desired curvature to sense when planner is actively reducing
     self._desired_curvature_last = 0.0
+    # Human-turn override: while the driver manually turns, lateral is forced inactive (mode 0,
+    # all-zero signals) instead of winding path_angle into a stale command the PSCM can't cleanly
+    # reconcile on release (2-3 s re-engage dead time observed on Mach-E). See module docstring.
+    # Note: in CarController this attribute is shared with LateralCurvExt (same mixin instance) --
+    # only one lateral strategy runs per frame, so a single detector serves both.
+    self.human_turn_detector = HumanTurnDetector()
+    self.angle_human_turn_active = False  # read by carcontroller to force mode 0
+    # Post-override stall blip state (see module constants). angle_stall_blip_active is read by
+    # carcontroller to force mode 0, exactly like angle_human_turn_active.
+    self.stall_blip_hold_s = 0.0      # accumulated deviation-clip-binding time toward a pulse
+    self.stall_blip_frames_left = 0   # remaining pulse frames; > 0 -> mode 0 on the wire
+    self.stall_blip_cooldown_s = 0.0  # re-arm delay after a pulse
+    self.stall_blip_count = 0         # pulses fired this stall episode
+    self.angle_stall_blip_active = False
+    self.press_timer_s = 0.0          # continuous steeringPressed time, for the hand-off blip
 
   def update_angle_params(self, params):
     """Sets per-platform gain defaults and reads user feel-factor params."""
@@ -180,6 +229,14 @@ class LateralAngleExt:
       self.bp_curvature_deviation_limited = False
       self.sim_curvature_last = 0.0
       self.bp_kappa_cmd = 0.0
+      self.human_turn_detector.reset()
+      self.angle_human_turn_active = False
+      self.stall_blip_hold_s = 0.0
+      self.stall_blip_frames_left = 0
+      self.stall_blip_cooldown_s = 0.0
+      self.stall_blip_count = 0
+      self.angle_stall_blip_active = False
+      self.press_timer_s = 0.0
       self.precision_type = 1
       return LateralResult(
         apply_curvature=0.0,
@@ -190,6 +247,91 @@ class LateralAngleExt:
         precision_type=1,
         lateralUncertainty=0.0,
       )
+
+    # Human-turn override: sustained driver press + large wheel angle → force lateral inactive
+    # (carcontroller drops mode to 0; all signals are zero on the wire) so path_angle can't wind
+    # into a stale command while the driver turns. Always on in angle mode (no param gate) -- the
+    # curv-suffixed human-turn toggle belongs to curvature mode's reset strategy, and the Mach-E
+    # PSCM re-engage stall this prevents is not something a user should be able to opt out of.
+    # On release, no jump seed: path_angle_last is 0, so the normal flow below ramps the command
+    # back in through the soft ROC -- generous at human-turn speeds, no panda bypass involved.
+    self.angle_human_turn_active = self.human_turn_detector.update(
+      True, CS.out.steeringPressed, CS.out.steeringAngleDeg)
+    if self.angle_human_turn_active:
+      self.path_angle_last = 0.0
+      self.bp_path_angle_final = 0.0
+      self.apply_curvature_last = 0.0
+      self.bp_angle_rate_limited = False
+      self.bp_curvature_rate_limited = False
+      self.bp_curvature_deviation_limited = False
+      self.sim_curvature_last = 0.0
+      # Zero the shadow curvature on the wire during the override (mirrors the inactive path);
+      # ford.h skips the deviation check while steer_control_enabled is 0 either way.
+      self.bp_kappa_cmd = 0.0
+      # Keep exit detection current so resume doesn't compare against a stale pre-turn value.
+      self._desired_curvature_last = float(actuators.curvature)
+      # A human turn ends any stall episode -- its own mode 0 does the PSCM reset job. That also
+      # covers the press so far: only press time accumulated AFTER the latch releases should earn
+      # a hand-off pulse.
+      self.stall_blip_hold_s = 0.0
+      self.stall_blip_frames_left = 0
+      self.stall_blip_cooldown_s = 0.0
+      self.stall_blip_count = 0
+      self.angle_stall_blip_active = False
+      self.press_timer_s = 0.0
+      self.precision_type = 1
+      return LateralResult(
+        apply_curvature=0.0,
+        curvature_rate=0.0,
+        path_offset=0.0,
+        path_angle=0.0,
+        ramp_type=0,
+        precision_type=1,
+        lateralUncertainty=0.0,
+      )
+
+    # Proactive hand-off blip: the falling edge of a sustained press earns an immediate mode-0
+    # pulse (see _PRESS_BLIP_MIN_S) -- resets the PSCM's press-induced attenuation right at
+    # hand-off, while the car is straight and the command small, instead of waiting for the
+    # reactive stall detector below to watch the car miss the next curve first.
+    if CS.out.steeringPressed:
+      self.press_timer_s += _STEER_DT
+    else:
+      if (self.press_timer_s >= _PRESS_BLIP_MIN_S and self.stall_blip_cooldown_s <= 0.0
+          and self.stall_blip_frames_left <= 0):
+        self.stall_blip_frames_left = _STALL_BLIP_FRAMES
+      self.press_timer_s = 0.0
+
+    # Stall-blip pulse in progress: hold lateral inactive (mode 0, all-zero signals -- the same
+    # wire pattern as the human-turn override, no ford.h involvement) for _STALL_BLIP_FRAMES so the
+    # PSCM drops its post-override attenuation, then release; path_angle ramps back in from zero
+    # through the soft ROC exactly like a human-turn release. Detection lives at the end of the
+    # normal flow below.
+    if self.stall_blip_frames_left > 0:
+      self.stall_blip_frames_left -= 1
+      self.angle_stall_blip_active = True
+      self.path_angle_last = 0.0
+      self.bp_path_angle_final = 0.0
+      self.apply_curvature_last = 0.0
+      self.bp_angle_rate_limited = False
+      self.bp_curvature_rate_limited = False
+      self.bp_curvature_deviation_limited = False
+      self.sim_curvature_last = 0.0
+      self.bp_kappa_cmd = 0.0
+      self._desired_curvature_last = float(actuators.curvature)
+      self.precision_type = 1
+      if self.stall_blip_frames_left <= 0:
+        self.stall_blip_cooldown_s = _STALL_COOLDOWN_S
+      return LateralResult(
+        apply_curvature=0.0,
+        curvature_rate=0.0,
+        path_offset=0.0,
+        path_angle=0.0,
+        ramp_type=0,
+        precision_type=1,
+        lateralUncertainty=0.0,
+      )
+    self.angle_stall_blip_active = False
 
     self.precision_type = 1
     precision = 1
@@ -372,6 +514,28 @@ class LateralAngleExt:
                                                   CS.out.steeringAngleDeg, CC.latActive, BP_ANGLE_LIMITS)
     self.bp_curvature_rate_limited = bool(abs(_equiv_curv_rl - kappa_cmd) > 1e-9)
     self.sim_curvature_last = float(_equiv_curv_rl)
+
+    # Post-override stall detection (mechanism in the module constants' comment). Fires the mode-0
+    # blip when, hands-free, desired curvature has led measured by more than 2x the deviation
+    # clip's tolerance while the clip was actually binding for _STALL_HOLD_S accumulated seconds.
+    # devLim flickers mid-stall (~63% duty on the diagnosis route), so off frames hold the
+    # accumulator rather than resetting it; a closed gap or driver press ends the episode.
+    self.stall_blip_cooldown_s = max(0.0, self.stall_blip_cooldown_s - _STEER_DT)
+    _stall_gap = desired_curvature - current_curvature
+    _stalled = (not CS.out.steeringPressed and not self.lane_change and v_ego > 9.0
+                and abs(_stall_gap) > _STALL_GAP_MIN
+                and abs(desired_curvature) > abs(current_curvature))
+    if _stalled:
+      if self.bp_curvature_deviation_limited and self.stall_blip_cooldown_s <= 0.0:
+        self.stall_blip_hold_s += _STEER_DT
+      if self.stall_blip_hold_s >= _STALL_HOLD_S and self.stall_blip_count < _STALL_MAX_BLIPS:
+        self.stall_blip_frames_left = _STALL_BLIP_FRAMES
+        self.stall_blip_hold_s = 0.0
+        self.stall_blip_count += 1
+    else:
+      self.stall_blip_hold_s = 0.0
+      if CS.out.steeringPressed or abs(_stall_gap) < 0.5 * _STALL_GAP_MIN:
+        self.stall_blip_count = 0  # episode over: the car is tracking again or the driver took it
 
     ramp_type = 2
 

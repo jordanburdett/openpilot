@@ -179,3 +179,5 @@ class ControllerStateBP:
   angleRateLimited: bool = False       # angle mode: path_angle soft-ROC clip bit this frame
   curvatureRateLimited: bool = False   # sim: equivalent curvature would be rate-limited by lateral_curv_ext
   curvatureDeviationLimited: bool = False  # current_curvature error-clip constrained the command this frame
+  humanTurnLateralPaused: bool = False  # angle mode: lateral forced inactive (mode 0) during a manual turn
+  stallBlipActive: bool = False  # angle mode: brief mode-0 pulse resetting PSCM authority after a post-override stall

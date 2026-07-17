@@ -182,8 +182,18 @@ class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, Longitud
         # (both lateral_curv_ext.update and lateral_angle_ext.update_angle_strategy set this), so it's
         # meaningful in both modes -- not gated by _angle_mode like the two above.
         self.curvatureDeviationLimited = getattr(self, 'bp_curvature_deviation_limited', False)
+        self.humanTurnLateralPaused = self.angle_human_turn_active if _angle_mode else False
+        self.stallBlipActive = self.angle_stall_blip_active if _angle_mode else False
 
-        lat_active = CC.latActive
+        # BluePilot: angle-mode human-turn override -- send lateral inactive (mode 0) while the
+        # driver manually turns, so the PSCM releases cleanly instead of stalling 2-3 s on
+        # re-engage (observed on Mach-E). Panda-clean: every ford.h check has a legitimate
+        # !steer_control_enabled branch for the zeroed frames; on release, path_angle ramps back
+        # from 0 through the soft ROC (no reset-bypass latch involvement). Curvature mode keeps
+        # its own reset_steering path (zeroed signals with mode still active) in LateralCurvExt.
+        # The stall blip (lateral_angle_ext.py) rides the same mode-0 path: a short pulse that
+        # resets the PSCM's post-override attenuation when the deviation clip deadlocks hands-free.
+        lat_active = CC.latActive and not (_angle_mode and (self.angle_human_turn_active or self.angle_stall_blip_active))
         if self.CP.flags & FordFlags.CANFD:
           mode = 1 if lat_active else 0
           counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
