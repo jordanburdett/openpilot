@@ -7,7 +7,7 @@ but fully separate for easier maintenance and upstream syncing.
 Key differences from upstream:
 - Smoother filters (higher time constants) to reduce visual jitter/glitchiness
 - Supports gauge_height_offset to position the arc above battery/power flow gauges
-- Uses lateralUncertainty from controllerStateBP for angleState vehicles (Tesla etc.)
+- Uses upstream angleState torque estimation for angle and curvature steering modes
 - Softer color transitions and more refined visual feel
 """
 import math
@@ -16,13 +16,13 @@ from collections import OrderedDict
 
 import numpy as np
 import pyray as rl
-from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.mici.onroad import blend_colors
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
+from openpilot.selfdrive.ui.bp.onroad.torque_bar_state_bp import TorqueBarStateBP
 
 # Arc geometry (legacy arc — kept for MICI / fallback)
 TORQUE_ANGLE_SPAN = 12.7
@@ -131,7 +131,7 @@ def _arc_bar_pts(cx: float, cy: float,
   return pts
 
 
-class TorqueBarRendererBP:
+class TorqueBarRendererBP(TorqueBarStateBP):
   """BluePilot torque bar renderer — smoother, repositionable, independent of upstream.
 
   This is NOT a Widget subclass. It's rendered explicitly by the augmented road view
@@ -147,31 +147,8 @@ class TorqueBarRendererBP:
 
   def update(self):
     """Update torque state from car messages. Call once per frame."""
-    # BluePilot: Use lateral uncertainty from controllerStateBP on angleState vehicles
     try:
-      if ui_state.sm['controlsState'].lateralControlState.which() == 'angleState':
-        if ui_state.sm.valid.get("controllerStateBP", False):
-          try:
-            lateral_uncertainty = ui_state.sm['controllerStateBP'].lateralUncertainty
-            self._torque_filter.update(min(max(lateral_uncertainty, -1.0), 1.0))
-            self._update_alpha()
-            return
-          except (KeyError, AttributeError):
-            pass
-
-        # angleState fallback: acceleration-based
-        controls_state = ui_state.sm['controlsState']
-        car_state = ui_state.sm['carState']
-        live_parameters = ui_state.sm['liveParameters']
-        lateral_acceleration = controls_state.curvature * car_state.vEgo ** 2 - live_parameters.roll * ACCELERATION_DUE_TO_GRAVITY
-        max_lateral_acceleration = 3
-        actual_lateral_accel = controls_state.curvature * car_state.vEgo ** 2
-        desired_lateral_accel = controls_state.desiredCurvature * car_state.vEgo ** 2
-        accel_diff = desired_lateral_accel - actual_lateral_accel
-        self._torque_filter.update(min(max(lateral_acceleration / max_lateral_acceleration + accel_diff, -1.0), 1.0))
-      else:
-        # Non-angleState: use actuator torque output
-        self._torque_filter.update(-ui_state.sm['carOutput'].actuatorsOutput.torque)
+      self._update_torque_filter_bp()
     except (KeyError, AttributeError):
       pass
 

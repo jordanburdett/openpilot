@@ -12,8 +12,15 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
-from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item
-from openpilot.selfdrive.ui.bp.widgets.section_header import SectionHeader
+from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item, int_control_item
+from openpilot.selfdrive.ui.bp.widgets.section_header import CollapsibleSectionHeader
+from openpilot.selfdrive.ui.bp.lib.steering_wheel_style import (
+  ensure_steering_wheel_icon_style_initialized,
+  get_steering_wheel_icon_style,
+  SteeringWheelIconStyle,
+)
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
+from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import GaugeStyle
 
 
 class BluePilotLayout(Widget):
@@ -57,6 +64,9 @@ class BluePilotLayout(Widget):
     self._refresh_toggles = (
       ("send_hands_free_cluster_msg", self._show_hands_free_ui),
       ("BPDisableLaneLineStatusColor", self._disable_lane_line_status_color),
+      ("BPHideCameraView", self._hide_camera_view),
+      ("BPRadRacerTheme", self._rad_racer_theme),
+      ("BPRainbowLines", self._rainbow_lane_lines),
       ("ShowBlindspotOverlay", self._show_blindspot),
       ("ShowBrakeStatus", self._show_brake_status),
       ("BPHideOnroadBorder", self._hide_onroad_border),
@@ -65,14 +75,16 @@ class BluePilotLayout(Widget):
       ("FordPrefShowRadarLeadOverlay", self._show_ford_radar_overlay),
       ("FordPrefHybridBatteryStatus", self._show_hybrid_battery_status),
       ("FordPrefHybridPowerFlow", self._show_hybrid_power_flow),
-      ("enable_human_turn_detection", self._enable_human_turn_detection),
+      ("enable_human_turn_detection_curv", self._enable_human_turn_detection),
       ("BlinkerPauseLaneChange", self._disable_lane_change_under_speed),
-      ("enable_lane_positioning", self._enable_lane_positioning),
-      ("enable_lane_full_mode", self._enable_lane_full_mode),
-      ("custom_profile", self._custom_profile),
+      ("enable_lane_positioning_curv", self._enable_lane_positioning),
+      ("enable_lane_full_mode_curv", self._enable_lane_full_mode),
+      ("custom_profile_curv", self._custom_profile),
       ("disable_BP_lat_UI", self._disable_BP_lat),
       ("disable_BP_long_UI", self._disable_BP_long),
       ("disable_downhill_comp_UI", self._disable_dowhill_comp),
+      ("disable_ford_radar_UI", self._disable_ford_radar),
+      ("BpShowLateralControl", self._show_lateral_control),
       ("BPUIDebugLog", self._ui_debug_log),
     )
 
@@ -96,6 +108,33 @@ class BluePilotLayout(Widget):
       lambda: tr("Keep lane lines grey instead of changing to green when engaged."),
       initial_state=self._safe_get_bool(self._params, "BPDisableLaneLineStatusColor"),
       callback=lambda state: self._toggle_callback(state, "BPDisableLaneLineStatusColor"),
+      icon="monitoring.png"
+    )
+
+    # Minimal driving view toggle
+    self._hide_camera_view = toggle_item(
+      lambda: tr("Minimal Driving View"),
+      lambda: tr("Disable camera feed & only show lane lines and model path."),
+      initial_state=self._safe_get_bool(self._params, "BPHideCameraView"),
+      callback=lambda state: self._toggle_callback(state, "BPHideCameraView"),
+      icon="chffr_wheel.png"
+    )
+
+    # Rad Racer 8-bit theme toggle
+    self._rad_racer_theme = toggle_item(
+      lambda: tr("8-Bit Racer Theme"),
+      lambda: tr("Retro racing game onroad view: hides the camera, draws the road as green game lines, and shows a bottom gauge cluster."),
+      initial_state=self._safe_get_bool(self._params, "BPRadRacerTheme"),
+      callback=lambda state: self._toggle_callback(state, "BPRadRacerTheme"),
+      icon="chffr_wheel.png"
+    )
+
+    # Rainbow lane lines toggle
+    self._rainbow_lane_lines = toggle_item(
+      lambda: tr("Rainbow Lane Lines"),
+      lambda: tr("Inner lane lines become rainbow colored when longitudinal control is active."),
+      initial_state=self._safe_get_bool(self._params, "BPRainbowLines"),
+      callback=lambda state: self._toggle_callback(state, "BPRainbowLines"),
       icon="monitoring.png"
     )
 
@@ -141,6 +180,17 @@ class BluePilotLayout(Widget):
       lambda: tr("Rotate the steering wheel icon to match the current steering angle."),
       initial_state=self._safe_get_bool(self._params, "BPAnimateSteeringWheel"),
       callback=lambda state: self._toggle_callback(state, "BPAnimateSteeringWheel"),
+      icon="chffr_wheel.png"
+    )
+
+    wheel_style_idx = int(ensure_steering_wheel_icon_style_initialized(self._params, SteeringWheelIconStyle.COMMA_3X))
+    self._wheel_icon_style_btn = multiple_button_item(
+      lambda: tr("Wheel Icon Style"),
+      lambda: tr("Toggle wheel icon style between Comma 4 and Comma 3x wheel"),
+      buttons=[lambda: tr("Comma 4"), lambda: tr("Comma 3x")],
+      button_width=225,
+      callback=self._set_wheel_icon_style,
+      selected_index=wheel_style_idx,
       icon="chffr_wheel.png"
     )
 
@@ -217,15 +267,7 @@ class BluePilotLayout(Widget):
     )
 
     # Hybrid gauge style: Flat (horizontal bar + container) vs Arched (arch above torque bar)
-    gauge_style_raw = self._safe_get(self._params, "FordPrefHybridGaugeStyle") or b"flat"
-    gauge_style_str = (gauge_style_raw.decode("utf-8", errors="replace").strip("\x00").lower()
-                       if isinstance(gauge_style_raw, bytes) else str(gauge_style_raw).strip().lower())
-    gauge_style_idx = 1 if gauge_style_str == "arched" else 0
-    try:
-      if gauge_style_str not in ("flat", "arched"):
-        self._params.put("FordPrefHybridGaugeStyle", "flat")
-    except UnknownKeyName:
-      pass
+    gauge_style_idx = GaugeStyle(self._params.get("FordPrefGaugeStyle", return_default=True) or 0)
     self._hybrid_gauge_style_btn = multiple_button_item(
       lambda: tr("Hybrid Gauge Style"),
       lambda: tr("Flat: horizontal bar in shared container. Arched: arch above torque bar (older style)."),
@@ -240,28 +282,46 @@ class BluePilotLayout(Widget):
     self._enable_human_turn_detection = toggle_item(
       lambda: tr("Enable Human Turn Detection"),
       lambda: tr("Enable detection of human-initiated turns."),
-      initial_state=self._safe_get_bool(self._params, "enable_human_turn_detection"),
-      callback=lambda state: self._toggle_callback(state, "enable_human_turn_detection"),
+      initial_state=self._safe_get_bool(self._params, "enable_human_turn_detection_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_human_turn_detection_curv"),
       icon="warning.png"
     )
 
-    # Lane change factor high (float)
-    self._lane_change_factor_high = float_control_item(
+    # Lane change factor high (float) — curvature-mode and angle-mode tune this independently
+    self._lane_change_factor_high_curv = float_control_item(
       lambda: tr("Lane Change Factor High"),
-      lambda: tr("Adjust the high-speed lane change factor (0.5-1.0)."),
-      param="lane_change_factor_high",
+      lambda: tr("Scales steering during a lane change (curvature control). Values <1.0 reduce it."),
+      param="lane_change_factor_high_curv",
       min_value=0.5,
       max_value=1.0,
       step=0.05,
       icon="speed_limit.png"
     )
+    self._lane_change_factor_high_ang = float_control_item(
+      lambda: tr("Lane Change Factor High"),
+      lambda: tr("Scales steering during a lane change (angle control). Values >1.0 boost it."),
+      param="lane_change_factor_high_ang",
+      min_value=0.85,
+      max_value=1.50,
+      step=0.05,
+      icon="speed_limit.png"
+    )
 
-    # Disable lane change under speed toggle (BlinkerPauseLaneChange)
     self._disable_lane_change_under_speed = toggle_item(
       lambda: tr("Disable Lane Change Under Speed"),
       lambda: tr("Pause lateral control when blinker is on and below minimum speed."),
       initial_state=self._safe_get_bool(self._params, "BlinkerPauseLaneChange"),
-      callback=lambda state: self._toggle_callback(state, "BlinkerPauseLaneChange"),
+      callback=self._on_blinker_pause_changed,
+      icon="chffr_wheel.png"
+    )
+
+    self._blinker_min_speed = int_control_item(
+      lambda: tr("Minimum Speed to Pause Lane Change"),
+      lambda: tr("Below this speed, lateral control is paused when the blinker is active."),
+      param="BlinkerMinLateralControlSpeed",
+      min_value=5,
+      max_value=50,
+      step=1,
       icon="chffr_wheel.png"
     )
 
@@ -269,8 +329,8 @@ class BluePilotLayout(Widget):
     self._enable_lane_positioning = toggle_item(
       lambda: tr("Enable Lane Positioning"),
       lambda: tr("Enable custom lane positioning controls."),
-      initial_state=self._safe_get_bool(self._params, "enable_lane_positioning"),
-      callback=lambda state: self._toggle_callback(state, "enable_lane_positioning"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -278,11 +338,11 @@ class BluePilotLayout(Widget):
     self._custom_path_offset = float_control_item(
       lambda: tr("In-Lane Offset"),
       lambda: tr("Adjust the in-lane offset (-0.5 to 0.5)."),
-      param="custom_path_offset",
+      param="custom_path_offset_curv",
       min_value=-0.5,
       max_value=0.5,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -290,9 +350,9 @@ class BluePilotLayout(Widget):
     self._enable_lane_full_mode = toggle_item(
       lambda: tr("Enable Lanefull Mode"),
       lambda: tr("Enable lanefull mode for lane positioning."),
-      initial_state=self._safe_get_bool(self._params, "enable_lane_full_mode"),
-      callback=lambda state: self._toggle_callback(state, "enable_lane_full_mode"),
-      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_full_mode_curv"),
+      callback=lambda state: self._toggle_callback(state, "enable_lane_full_mode_curv"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -300,8 +360,8 @@ class BluePilotLayout(Widget):
     self._custom_profile = toggle_item(
       lambda: tr("Use Custom Tuning Profile"),
       lambda: tr("Enable custom tuning profile settings."),
-      initial_state=self._safe_get_bool(self._params, "custom_profile"),
-      callback=lambda state: self._toggle_callback(state, "custom_profile"),
+      initial_state=self._safe_get_bool(self._params, "custom_profile_curv"),
+      callback=lambda state: self._toggle_callback(state, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -309,11 +369,11 @@ class BluePilotLayout(Widget):
     self._pc_blend_ratio_high_C = float_control_item(
       lambda: tr("Predicted Curvature Blend Ratio High"),
       lambda: tr("Adjust the high curvature blend ratio (0.0-1.0)."),
-      param="pc_blend_ratio_high_C_UI",
+      param="pc_blend_ratio_high_C_UI_curv",
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
@@ -321,23 +381,23 @@ class BluePilotLayout(Widget):
     self._pc_blend_ratio_low_C = float_control_item(
       lambda: tr("Predicted Curvature Blend Ratio Low"),
       lambda: tr("Adjust the low curvature blend ratio (0.0-1.0)."),
-      param="pc_blend_ratio_low_C_UI",
+      param="pc_blend_ratio_low_C_UI_curv",
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile_curv"),
       icon="chffr_wheel.png"
     )
 
-    # Low curvature PID gain (float, conditional on custom profile)
+    # Centering PID gain — curv-mode lane positioning only (only effective when custom_profile_curv is on).
+    # Angle mode's centering trim was removed; see lateral_angle_ext.py docstring.
     self._lc_pid_gain = float_control_item(
-      lambda: tr("Low Curvature PID Gain"),
-      lambda: tr("Adjust the low curvature PID gain (0.0-5.0)."),
-      param="LC_PID_gain_UI",
+      lambda: tr("Centering PID gain"),
+      lambda: tr("PID gain for the curvature-mode centering controller (only effective when 'custom profile' is enabled)."),
+      param="LC_PID_gain_UI_curv",
       min_value=0.0,
-      max_value=5.0,
-      step=0.1,
-      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
+      max_value=50.0,
+      step=0.5,
       icon="chffr_wheel.png"
     )
 
@@ -362,6 +422,47 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
+    # Connect backend selector (Comma Connect / Konik Stable / Offline Mode)
+    self._connect_backend_dialog: MultiOptionDialog | None = None
+    self._connect_backend_action = ButtonAction(lambda: tr("SELECT"))
+    self._connect_backend_action.set_value(lambda: self._get_connect_backend_display())
+    self._connect_backend_btn = ListItem(
+      lambda: tr("Connect Backend"),
+      description=lambda: tr("Comma Connect uses stock servers. Konik Stable sends routes to stable.konik.ai (dongle ID switches automatically). Offline Mode points at unreachable hosts so uploads never succeed. Reboot to apply."),
+      action_item=self._connect_backend_action,
+      callback=self._select_connect_backend
+    )
+
+    # Lane line feedback trim — toggle + tuning floats
+    # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
+    primary_lat_idx = PrimaryLateralControl(self._params.get("FordPrefLateralControl", return_default=True) or 0)
+    self._primary_lateral_control_btn = multiple_button_item(
+      lambda: tr("Primary Control Variable"),
+      lambda: tr("Curvature matches the existing strategy. Angle uses path_angle as the main actuator (in development)."),
+      buttons=[lambda: tr("Curvature"), lambda: tr("Angle")],
+      button_width=225,
+      callback=self._set_primary_lateral_control,
+      selected_index=primary_lat_idx,
+      icon="chffr_wheel.png"
+    )
+    self._low_speed_curv_factor = float_control_item(
+      lambda: tr("Low Speed Adjustment Factor"),
+      lambda: tr("Scales the low-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
+      param="FordLowSpeedFactor_ang",
+      min_value=0.5,
+      max_value=1.5,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
+    self._high_speed_curv_factor = float_control_item(
+      lambda: tr("High Speed Adjustment Factor"),
+      lambda: tr("Scales the high-speed steering response in angle mode. Adjust for personal feel. Default 1.0."),
+      param="FordHighSpeedFactor_ang",
+      min_value=0.5,
+      max_value=1.5,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
     # Disable BP lateral control toggle
     self._disable_BP_lat = toggle_item(
       lambda: tr("Disable BP Lateral Control"),
@@ -389,6 +490,24 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
+    # Disable Ford radar — vision-only lead detection (requires reboot)
+    self._disable_ford_radar = toggle_item(
+      lambda: tr("Disable Ford Radar (Vision-Only Leads)"),
+      lambda: tr("Ignore the vehicle radar and drive leads exclusively from the vision model. Requires reboot."),
+      initial_state=self._safe_get_bool(self._params, "disable_ford_radar_UI"),
+      callback=lambda state: self._toggle_callback(state, "disable_ford_radar_UI"),
+      icon="chffr_wheel.png"
+    )
+
+    # Show lateral control mode overlay toggle
+    self._show_lateral_control = toggle_item(
+      lambda: tr("Show Lateral Control Mode"),
+      lambda: tr("Display the lateral control mode overlay on the steering wheel icon."),
+      initial_state=self._safe_get_bool(self._params, "BpShowLateralControl"),
+      callback=lambda state: self._toggle_callback(state, "BpShowLateralControl"),
+      icon="chffr_wheel.png"
+    )
+
     # Preferred WiFi Network selector
     self._preferred_network_action = ButtonAction(lambda: tr("SELECT"))
     self._preferred_network_action.set_value(lambda: self._get_preferred_network_display())
@@ -407,36 +526,35 @@ class BluePilotLayout(Widget):
       callback=self._clear_model_cache
     )
 
-    # Build menu with sections per TICI_MENU.csv
-    return [
-      SectionHeader(tr("System")),
-      self._preferred_network_btn,
-      self._clear_model_cache_btn,
-      self._ui_debug_log,
-      SectionHeader(tr("Vehicle")),
-      self._show_hands_free_ui,
-      self._vbatt_pause_charging,
-      SectionHeader(tr("Visuals")),
-      self._hide_onroad_border,
-      self._disable_lane_line_status_color,
-      self._show_blindspot,
-      self._show_brake_status,
-      self._show_confidence_ball,
-      self._animate_steering_wheel,
-      self._show_ford_radar_overlay,
-      self._radar_overlay_size_btn,
-      self._show_hybrid_battery_status,
-      self._show_hybrid_power_flow,
-      self._hybrid_gauge_size_btn,
-      self._hybrid_gauge_style_btn,
-      SectionHeader(tr("Longitudinal Tuning")),
-      self._disable_BP_long,
-      self._disable_dowhill_comp,
-      SectionHeader(tr("Lateral Tuning")),
-      self._disable_BP_lat,
+    # BluePilot: reset menu layout — collapses all sections, fixing overlap glitch without reboot.
+    self._reset_menu_btn = button_item(
+      lambda: tr("Reset Menu Layout"),
+      lambda: tr("RESET"),
+      lambda: tr("Collapse all sections to fix overlapping items. Use this if the menu looks broken."),
+      callback=lambda: self._scroller.show_event()
+    )
+    # End BluePilot
+
+    # BluePilot: collapsible section groups — all start collapsed when the menu opens.
+    def _section(title: str, items: list) -> list:
+      header = CollapsibleSectionHeader(title)
+      header.set_items(items)
+      return [header] + items
+
+    # Angle Tuning: nested collapsible sub-section, angle-mode-only tuning items
+    angle_items = [
+      self._low_speed_curv_factor,
+      self._high_speed_curv_factor,
+      self._lane_change_factor_high_ang,
+    ]
+    angle_header = CollapsibleSectionHeader(tr("Angle Tuning"))
+    angle_header.set_items(angle_items)
+    self._angle_header = angle_header
+
+    # Curvature Tuning: nested collapsible sub-section, curvature-mode-only tuning items
+    curv_items = [
       self._enable_human_turn_detection,
-      self._disable_lane_change_under_speed,
-      self._lane_change_factor_high,
+      self._lane_change_factor_high_curv,
       self._enable_lane_positioning,
       self._custom_path_offset,
       self._enable_lane_full_mode,
@@ -445,6 +563,64 @@ class BluePilotLayout(Widget):
       self._pc_blend_ratio_low_C,
       self._lc_pid_gain,
     ]
+    curv_header = CollapsibleSectionHeader(tr("Curvature Tuning"))
+    curv_header.set_items(curv_items)
+    self._curv_header = curv_header
+
+    # Lateral Tuning: outer section. Disable toggle and mode selector up top, then mode-agnostic
+    # lane-change items, then the two nested sub-sections (always visible, greyed by mode above).
+    lateral_items = [
+      self._disable_BP_lat,
+      self._primary_lateral_control_btn,
+      self._disable_lane_change_under_speed,
+      self._blinker_min_speed,
+      self._show_lateral_control,
+    ]
+    lateral_header = CollapsibleSectionHeader(tr("Lateral Tuning"))
+    lateral_header.set_items(lateral_items + [angle_header, curv_header])
+    lateral_header.set_nested_headers([angle_header, curv_header])
+    self._lateral_header = lateral_header
+
+    lateral_section = [lateral_header] + lateral_items + [angle_header] + angle_items + [curv_header] + curv_items
+
+    return (
+      _section(tr("System"), [
+        self._preferred_network_btn,
+        self._clear_model_cache_btn,
+        self._ui_debug_log,
+        self._connect_backend_btn,
+        self._reset_menu_btn,
+      ]) +
+      _section(tr("Vehicle"), [
+        self._show_hands_free_ui,
+        self._vbatt_pause_charging,
+      ]) +
+      _section(tr("Visuals"), [
+        self._hide_onroad_border,
+        self._disable_lane_line_status_color,
+        self._hide_camera_view,
+        self._rad_racer_theme,
+        self._rainbow_lane_lines,
+        self._show_blindspot,
+        self._show_brake_status,
+        self._show_confidence_ball,
+        self._animate_steering_wheel,
+        self._wheel_icon_style_btn,
+        self._show_ford_radar_overlay,
+        self._radar_overlay_size_btn,
+        self._show_hybrid_battery_status,
+        self._show_hybrid_power_flow,
+        self._hybrid_gauge_size_btn,
+        self._hybrid_gauge_style_btn,
+      ]) +
+      _section(tr("Longitudinal Tuning"), [
+        self._disable_BP_long,
+        self._disable_dowhill_comp,
+        self._disable_ford_radar,
+      ]) +
+      lateral_section
+    )
+    # End BluePilot
 
   def _get_float_param(self, param: str, default: float) -> float:
     """Get float parameter value."""
@@ -461,6 +637,59 @@ class BluePilotLayout(Widget):
       pass  # Param not available in dev environment
     self._update_toggles(just_toggled={param: state})
 
+  def _get_connect_backend_display(self) -> str:
+    try:
+      from bluepilot.backend_switch import backend_label, get_connect_backend
+      return backend_label(get_connect_backend(self._params))
+    except Exception:
+      return tr("Comma Connect")
+
+  def _select_connect_backend(self):
+    from bluepilot.backend_switch import BACKEND_LABELS, BACKENDS, get_connect_backend
+
+    options = [BACKEND_LABELS[b] for b in BACKENDS]
+    current = self._get_connect_backend_display()
+    try:
+      prev_idx = BACKENDS.index(get_connect_backend(self._params))
+    except ValueError:
+      prev_idx = 0
+
+    def handle_selection(result):
+      if result == DialogResult.CONFIRM and self._connect_backend_dialog is not None:
+        selection = self._connect_backend_dialog.selection
+        try:
+          idx = options.index(selection)
+        except ValueError:
+          idx = 0
+        if idx != prev_idx:
+          try:
+            self._params.put("BPConnectBackend", idx)
+          except UnknownKeyName:
+            pass
+          self._connect_backend_action.set_value(self._get_connect_backend_display())
+          dialog = ConfirmDialog(tr("Server change requires a reboot to take effect. Reboot now?"),
+                                 tr("Reboot"), callback=self._handle_connect_backend_reboot)
+          gui_app.push_widget(dialog)
+        else:
+          self._connect_backend_action.set_value(self._get_connect_backend_display())
+      self._connect_backend_dialog = None
+
+    self._connect_backend_dialog = MultiOptionDialog(
+      tr("Select Connect Backend"),
+      options,
+      current,
+      callback=handle_selection
+    )
+    gui_app.push_widget(self._connect_backend_dialog)
+
+  def _handle_connect_backend_reboot(self, result):
+    if result == DialogResult.CONFIRM:
+      self._params.put_bool("DoReboot", True)
+
+  def _on_blinker_pause_changed(self, state: bool) -> None:
+    self._toggle_callback(state, "BlinkerPauseLaneChange")
+    self._blinker_min_speed.action_item.set_enabled(state)
+
   def _update_toggles(self, just_toggled: dict | None = None):
     """Update toggle states from params. just_toggled: {param: value} for params we just wrote (avoids refresh race)."""
     ui_state.update_params()
@@ -470,6 +699,9 @@ class BluePilotLayout(Widget):
     for key, item in self._refresh_toggles:
       state = fresh[key] if key in fresh else self._safe_get_bool(ui_state.params, key)
       item.action_item.set_state(state)
+
+    wheel_style_idx = int(get_steering_wheel_icon_style(ui_state.params, SteeringWheelIconStyle.COMMA_3X))
+    self._wheel_icon_style_btn.action_item.set_selected_button(wheel_style_idx)
 
     # Update button enabled states
     self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
@@ -491,19 +723,31 @@ class BluePilotLayout(Widget):
       gauge_size = 1
     gauge_size = min(gauge_size, 2)  # Clamp old 3-tier values
     self._hybrid_gauge_size_btn.action_item.set_selected_button(gauge_size - 1)
-    raw_style = self._safe_get(ui_state.params, "FordPrefHybridGaugeStyle") or b"flat"
-    style_str = (raw_style.decode("utf-8", errors="replace").strip("\x00").lower()
-                 if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
-    style_idx = 1 if style_str == "arched" else 0
+    style_idx = GaugeStyle(ui_state.params.get("FordPrefGaugeStyle", return_default=True) or 0)
     self._hybrid_gauge_style_btn.action_item.set_selected_button(style_idx)
-    # Use just_toggled for params we just wrote to avoid update_params refresh race
-    lane_pos = fresh.get("enable_lane_positioning") if "enable_lane_positioning" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning")
-    custom_prof = fresh.get("custom_profile") if "custom_profile" in fresh else self._safe_get_bool(ui_state.params, "custom_profile")
-    self._custom_path_offset.action_item.set_enabled(lane_pos)
-    self._enable_lane_full_mode.action_item.set_enabled(lane_pos)
-    self._pc_blend_ratio_high_C.action_item.set_enabled(custom_prof)
-    self._pc_blend_ratio_low_C.action_item.set_enabled(custom_prof)
-    self._lc_pid_gain.action_item.set_enabled(lane_pos and custom_prof)
+    plat_idx = PrimaryLateralControl(ui_state.params.get("FordPrefLateralControl", return_default=True) or 0)
+    self._primary_lateral_control_btn.action_item.set_selected_button(plat_idx)
+    custom_prof = fresh.get("custom_profile_curv") if "custom_profile_curv" in fresh else self._safe_get_bool(ui_state.params, "custom_profile_curv")
+    lane_pos = fresh.get("enable_lane_positioning_curv") if "enable_lane_positioning_curv" in fresh else self._safe_get_bool(ui_state.params, "enable_lane_positioning_curv")
+    pause_lc = fresh.get("BlinkerPauseLaneChange") if "BlinkerPauseLaneChange" in fresh else self._safe_get_bool(ui_state.params, "BlinkerPauseLaneChange")
+    is_angle = (plat_idx == PrimaryLateralControl.angle)
+    is_curv = not is_angle
+    # Conditional on BlinkerPauseLaneChange
+    self._blinker_min_speed.action_item.set_enabled(pause_lc)
+    # Angle-mode items: always visible (Angle Tuning section), greyed out when curvature mode is active
+    self._low_speed_curv_factor.action_item.set_enabled(is_angle)
+    self._high_speed_curv_factor.action_item.set_enabled(is_angle)
+    self._lane_change_factor_high_ang.action_item.set_enabled(is_angle)
+    # Curvature-mode items: always visible (Curvature Tuning section), greyed out when angle mode is active
+    self._lane_change_factor_high_curv.action_item.set_enabled(is_curv)
+    self._enable_human_turn_detection.action_item.set_enabled(is_curv)
+    self._enable_lane_positioning.action_item.set_enabled(is_curv)
+    self._custom_path_offset.action_item.set_enabled(is_curv and lane_pos)
+    self._enable_lane_full_mode.action_item.set_enabled(is_curv and lane_pos)
+    self._custom_profile.action_item.set_enabled(is_curv)
+    self._pc_blend_ratio_high_C.action_item.set_enabled(is_curv and custom_prof)
+    self._pc_blend_ratio_low_C.action_item.set_enabled(is_curv and custom_prof)
+    self._lc_pid_gain.action_item.set_enabled(is_curv and lane_pos and custom_prof)
 
   def show_event(self):
     super().show_event()
@@ -622,7 +866,7 @@ class BluePilotLayout(Widget):
           self._params.remove("ModelManager_ActiveBundle")
         except Exception:
           pass
-        self._params.put_bool("DoReboot", True)
+        self._params.put_bool("DoReboot", True, block=False)
         cloudlog.info("BluePilot: Cleared model cache (ModelRunnerTypeCache, ModelManager_ActiveBundle), triggered reboot")
 
     dialog = ConfirmDialog(
@@ -636,13 +880,27 @@ class BluePilotLayout(Widget):
     """Handle overlay size button selection."""
     self._params.put("FordPrefRadarOverlaySize", button_index)
 
+  def _set_wheel_icon_style(self, button_index: int):
+    """Handle wheel icon style: 0 = comma 4, 1 = comma 3X."""
+    self._params.put("BPSteeringWheelIconStyle", button_index)
+
   def _set_hybrid_gauge_size(self, button_index: int):
     """Handle hybrid gauge size button selection. Buttons are 0/1/2, param stores 1/2/3."""
     self._params.put("FordPrefHybridDriveGaugeSize", button_index + 1)
 
   def _set_hybrid_gauge_style(self, button_index: int):
     """Handle hybrid gauge style: 0 = Flat, 1 = Arched."""
-    self._params.put("FordPrefHybridGaugeStyle", "arched" if button_index == 1 else "flat")
+    try:
+      self._params.put("FordPrefGaugeStyle", int(GaugeStyle(button_index)))
+    except UnknownKeyName:
+      pass
+
+  def _set_primary_lateral_control(self, button_index: int):
+    try:
+      self._params.put("FordPrefLateralControl", int(PrimaryLateralControl(button_index)))
+    except UnknownKeyName:
+      pass
+    self._update_toggles()
 
   def _render(self, rect):
     # Process WiFi manager callbacks

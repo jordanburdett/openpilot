@@ -1,7 +1,10 @@
 import pyray as rl
 from openpilot.common.params import Params
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
+from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
 from openpilot.selfdrive.ui.onroad.hud_renderer import UI_CONFIG, FONT_SIZES, COLORS
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
+from openpilot.selfdrive.ui.bp.onroad.exp_button_bp import ExpButtonBP
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
@@ -21,6 +24,8 @@ class HudRendererBP(HudRendererSP):
 
   def __init__(self):
     super().__init__()
+    # BluePilot: Restore the animated C3X wheel without modifying the upstream ExpButton.
+    self._exp_button = ExpButtonBP(UI_CONFIG.button_size, UI_CONFIG.wheel_icon_size)
     self._bp_params = Params()
     self._brakes_on = False
     self.speed_right = 0
@@ -30,6 +35,9 @@ class HudRendererBP(HudRendererSP):
     self._param_counter = 0
     self._show_brake_status = self._bp_params.get_bool("ShowBrakeStatus")
     self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
+    self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
+    self._disable_bp_lat = self._bp_params.get_bool("disable_BP_lat_UI")
+    self._primary_control = PrimaryLateralControl(self._bp_params.get("FordPrefLateralControl") or 0)
 
   def set_gradient_rect(self, rect: rl.Rectangle):
     """Set full-width rect for header gradient (when HUD renders offset for confidence ball)."""
@@ -47,6 +55,10 @@ class HudRendererBP(HudRendererSP):
       self._param_counter = 0
       self._show_brake_status = self._bp_params.get_bool("ShowBrakeStatus")
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
+      self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
+      if self._show_lateral_control:
+        self._disable_bp_lat = self._bp_params.get_bool("disable_BP_lat_UI")
+        self._primary_control = PrimaryLateralControl(self._bp_params.get("FordPrefLateralControl") or 0)
 
     # Check brake status if enabled
     if self._show_brake_status:
@@ -82,6 +94,11 @@ class HudRendererBP(HudRendererSP):
     button_x = rect.x + rect.width - UI_CONFIG.border_size - UI_CONFIG.button_size
     button_y = rect.y + UI_CONFIG.border_size
     self._exp_button.render(rl.Rectangle(button_x, button_y, UI_CONFIG.button_size, UI_CONFIG.button_size))
+    self._draw_lateral_control_overlay(
+      button_x + UI_CONFIG.button_size / 2,
+      button_y + UI_CONFIG.button_size / 2,
+      UI_CONFIG.button_size,
+    )
 
     # SP additions (dev UI, road name, speed limit, SCC, turn signals, circular alerts, rocket fuel)
     self.developer_ui.render(rect)
@@ -91,6 +108,27 @@ class HudRendererBP(HudRendererSP):
     self.turn_signal_controller.render(rect)
     self.circular_alerts_renderer.render(rect)
     self.rocket_fuel.render(rect, ui_state.sm)
+
+  def _draw_lateral_control_overlay(self, center_x: float, center_y: float, wheel_size: int) -> None:
+    """Draw the current lateral control mode over the steering wheel icon."""
+    if not self._show_lateral_control:
+      return
+
+    text_size = int(wheel_size * 0.4)
+    if self._disable_bp_lat:
+      letter, color = "OP", rl.Color(100, 100, 100, 220)
+    elif self._primary_control == PrimaryLateralControl.angle:
+      letter, color = "A", rl.Color(50, 100, 255, 220)
+    else:
+      letter, color = "C", rl.Color(255, 165, 0, 220)
+
+    text_dims = measure_text_cached(self._font_bold, letter, text_size)
+    text_pos = rl.Vector2(center_x - text_dims.x / 2, center_y - text_dims.y / 2)
+
+    top = rl.Color(250, 250, 250, 200)
+    bottom = rl.Color(200, 200, 200, 200)
+    draw_shader_circle_gradient(center_x, center_y, text_size / 2, top, bottom)
+    rl.draw_text_ex(self._font_bold, letter, text_pos, text_size, 0, color)
 
   def _draw_current_speed(self, rect: rl.Rectangle) -> None:
     """Override to add brake status red coloring and track speed_right."""

@@ -1,10 +1,11 @@
 import time
+from enum import IntEnum
 import pyray as rl
 from cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
-from openpilot.selfdrive.ui.onroad.cameraview import CameraView
+from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
@@ -14,11 +15,18 @@ from openpilot.selfdrive.ui.bp.onroad.hybrid_battery_gauge_arched import HybridB
 from openpilot.selfdrive.ui.bp.onroad.power_flow_gauge import PowerFlowGauge
 from openpilot.selfdrive.ui.bp.onroad.powerflow_gauge_arched import PowerflowGaugeArched, POWERFLOW_ANGLE_SPAN
 from openpilot.selfdrive.ui.bp.onroad.torque_bar_renderer_bp import TorqueBarRendererBP
+from openpilot.selfdrive.ui.bp.onroad.rad_racer_theme import RadRacerTheme
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import ConfidenceBallTiciBP
 from openpilot.selfdrive.ui.onroad.driver_state import BTN_SIZE
 from openpilot.selfdrive.ui.sunnypilot.onroad.developer_ui import DeveloperUiState, get_bottom_dev_ui_offset
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
+
+
+class GaugeStyle(IntEnum):
+  flat = 0
+  arched = 1
+
 
 # BluePilot: Margin to keep confidence ball inside the colored border
 BALL_BORDER_MARGIN = UI_BORDER_SIZE // 2  # 15px
@@ -39,7 +47,7 @@ TORQUE_STRIP_GAP = 3       # Gap between strip bottom and gauge content top
 FULL_CONTENT_WIDTH = 2100.0
 
 
-class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
+class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
   """BluePilot AugmentedRoadView with blindspot indicators, gauges, and BP renderers."""
 
   BLIND_SPOT_WIDTH = 250  # Wider for TICI's larger screen
@@ -65,17 +73,17 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
     self._confidence_ball = ConfidenceBallTiciBP()
     self._show_confidence_ball = self._bp_params.get_bool("BPShowConfidenceBall")
     self._param_counter = 0
-    raw_style = self._bp_params.get("FordPrefHybridGaugeStyle") or b"flat"
-    self._hybrid_gauge_style = (raw_style.decode("utf-8", errors="replace").strip("\x00").lower()
-                                if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
-    if self._hybrid_gauge_style not in ("flat", "arched"):
-      self._hybrid_gauge_style = "flat"
+    self._hybrid_gauge_style = GaugeStyle(self._bp_params.get("FordPrefGaugeStyle", return_default=True) or 0)
     # BluePilot: Cache param to avoid per-frame disk I/O (refreshed in existing 60-frame block)
     self._hide_onroad_border = self._bp_params.get_bool("BPHideOnroadBorder")
     try:
       self._cached_gauge_size = int(self._bp_params.get("FordPrefHybridDriveGaugeSize", return_default=True))
     except (TypeError, ValueError):
       self._cached_gauge_size = 2
+
+    # BluePilot: Rad Racer 8-bit theme
+    self._rad_racer_theme = RadRacerTheme()
+    self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
 
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
@@ -97,11 +105,9 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
         self._cached_gauge_size = int(self._bp_params.get("FordPrefHybridDriveGaugeSize", return_default=True))
       except (TypeError, ValueError):
         self._cached_gauge_size = 2
-      raw_style = self._bp_params.get("FordPrefHybridGaugeStyle") or b"flat"
-      self._hybrid_gauge_style = (raw_style.decode("utf-8", errors="replace").strip("\x00").lower()
-                                  if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
-      if self._hybrid_gauge_style not in ("flat", "arched"):
-        self._hybrid_gauge_style = "flat"
+      self._hybrid_gauge_style = GaugeStyle(self._bp_params.get("FordPrefGaugeStyle", return_default=True) or 0)
+      # BluePilot: Rad Racer theme toggle
+      self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
@@ -133,8 +139,13 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
       int(self._content_rect.height)
     )
 
-    # Render the base camera view
-    CameraView._render(self, rect)
+    # Render the base camera view. Minimal Driving View suppression lives in CameraViewBP.
+    CameraViewBP._render(self, rect)
+
+    # BluePilot: Rad Racer 8-bit theme takes over the whole scene (skips HUD/gauges/ball)
+    if self._rad_racer_active:
+      self._render_rad_racer_scene(rect)
+      return
 
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)
@@ -216,6 +227,44 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
     if not self._hide_onroad_border:
       self._draw_border(rect)
 
+  def _render_rad_racer_scene(self, rect: rl.Rectangle):
+    """Render the full Rad Racer 8-bit scene: skyline, road, sprites, gauge cluster.
+
+    Called from _render with scissor mode already active on content_rect; ends
+    scissor mode and draws the border before returning (mirrors the stock path).
+    """
+    content_rect = self._content_rect
+
+    # Sky/signs project car-space points before the model road is rendered.
+    self.model_renderer.prepare_projection(content_rect)
+
+    # Sky, stars, skyline, roadside signs (behind the road)
+    self._rad_racer_theme.render_background(content_rect, self.model_renderer)
+
+    # Green game road (ModelRendererBP handles the 8-bit styling internally)
+    self.model_renderer.render(content_rect)
+
+    # Blindspot red edges stay on — safety overlay
+    self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)
+
+    # Gauge cluster panel first, then sprites so the ego car overlaps the panel edge
+    cluster_top = self._rad_racer_theme.cluster_top(content_rect)
+    self._torque_bar.update()
+    self._rad_racer_theme.render_cluster(content_rect, self._torque_bar)
+    self._rad_racer_theme.render_foreground(content_rect, self.model_renderer, cluster_top)
+
+    # Driver monitor floats bottom-left of the road view, just above the gauge cluster
+    self.driver_state_renderer.render(self._rad_racer_theme.driver_monitor_rect(content_rect))
+
+    # Alerts always on top
+    self.alert_renderer.render(content_rect)
+
+    bp_ui_log.scissor("AugRoadView", "end (rad racer)")
+    rl.end_scissor_mode()
+
+    if not self._hide_onroad_border:
+      self._draw_border(rect)
+
   def _get_dm_center_y(self, content_rect: rl.Rectangle) -> float:
     """Get the driver monitor face icon's vertical center Y coordinate.
 
@@ -233,9 +282,9 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
     When no hybrid gauge is active, the strip is not rendered — the stock arc torque bar
     is used instead (handled by the caller).
 
-    When FordPrefHybridGaugeStyle is "arched" and powerflow is ON: use arched powerflow + arched battery.
+    When gauge style is arched and powerflow is ON: use arched powerflow + arched battery.
     When powerflow is OFF: always use flat battery (no arched battery solo).
-    When style is "flat": use flat battery and/or flat powerflow.
+    When style is flat: use flat battery and/or flat powerflow.
 
     Returns:
         (gauge_height_offset, hybrid_active): gauge_height_offset is pixels from bottom of
@@ -243,7 +292,7 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
             when at least one hybrid gauge was rendered (strip was used for torque).
     """
     # Arched style + powerflow on: use arched layout. Powerflow off → flat battery only.
-    if getattr(self, "_hybrid_gauge_style", "flat") == "arched":
+    if getattr(self, "_hybrid_gauge_style", GaugeStyle.flat) == GaugeStyle.arched:
       self._power_flow_gauge_arched._update_state()
       if self._power_flow_gauge_arched._should_render():
         gauge_size = min(max(self._cached_gauge_size, 1), 2)  # 1 = small, 2 = large
@@ -402,7 +451,7 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
   _ARCHED_GAUGE_HEIGHT_OFFSET = 220.0
 
   def _render_gauges_arched(self, content_rect: rl.Rectangle, ball_offset: float, scale: float = 1.0) -> tuple[float, bool]:
-    """Render arched-style powerflow and battery gauges (FordPrefHybridGaugeStyle = arched).
+    """Render arched-style powerflow and battery gauges (gauge style = arched).
     scale: 0.75 for small (gauge size 1), 1.0 for large (gauge size 2).
     When both are visible, the steering strip spans battery + powerflow with center at screen middle.
     """

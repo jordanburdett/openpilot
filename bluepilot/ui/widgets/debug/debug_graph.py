@@ -33,6 +33,9 @@ class GraphConfig:
   scale_damping: float = 0.99
   zero_at_bottom: bool = False  # True for 0-1 range graphs (gas/brake)
   max_time_seconds: int = 5  # How many seconds of time labels to show
+  title_font_size: int = 52
+  axis_font_size: int = 40  # x-axis time labels and y-axis scale labels
+  legend_y_offset: int = 0  # shift legend text up (negative) without resizing the plot area
 
 
 class TimeSeriesGraph(Widget):
@@ -43,7 +46,7 @@ class TimeSeriesGraph(Widget):
   BOTTOM_MARGIN = 15
   SIDE_MARGIN = 85
   TIME_LABELS_HEIGHT = 46
-  LEGEND_ROW_HEIGHT = 48
+  LEGEND_ROW_HEIGHT = 26
   LEGEND_GAP = 8
   MIN_GRAPH_HEIGHT = 80
 
@@ -105,14 +108,14 @@ class TimeSeriesGraph(Widget):
     graph_w = int(rect.width - 2 * self.SIDE_MARGIN)
     graph_y = int(rect.y + self.TOP_MARGIN)
     time_labels_y = graph_y + graph_h + 12
-    legend_y = time_labels_y + self.TIME_LABELS_HEIGHT + self.LEGEND_GAP
+    legend_y = time_labels_y + self.TIME_LABELS_HEIGHT + self.LEGEND_GAP + self._config.legend_y_offset
 
     # Draw container background
     self._draw_container(rect)
 
     # Draw title
     rl.draw_text_ex(self._font_bold, self._config.title,
-                    rl.Vector2(graph_x, rect.y + 8), 52, 0,
+                    rl.Vector2(graph_x, rect.y + 8), self._config.title_font_size, 0,
                     DebugColors.SCALE_TEXT)
 
     # Draw graph area background
@@ -198,12 +201,12 @@ class TimeSeriesGraph(Widget):
       # Time label
       label = "Now" if i == 0 else f"-{i}s"
       rl.draw_text_ex(self._font_normal, label,
-                      rl.Vector2(x - 10, labels_y), 40, 0, DebugColors.LEGEND_TEXT)
+                      rl.Vector2(x - 10, labels_y), self._config.axis_font_size, 0, DebugColors.LEGEND_TEXT)
 
   def _draw_scale(self, rect: rl.Rectangle, gx: int, gy: int, gh: int, zero_y: int):
     """Draw Y-axis scale labels."""
     scale_x = int(rect.x + 4)
-    font_size = 40
+    font_size = self._config.axis_font_size
 
     if self._config.zero_at_bottom:
       # 0-1 range
@@ -276,7 +279,7 @@ class TimeSeriesGraph(Widget):
 
   def _draw_legend(self, gx: int, gw: int, legend_y: int, rect: rl.Rectangle):
     """Draw the legend with color swatches, labels, and current values."""
-    font_size = 40
+    font_size = 16
     col_width = gw // 3
 
     all_items = []

@@ -10,16 +10,18 @@ SCROLLING_SPEED_PX_S = 50
 COMPLICATION_SIZE    = 36
 LABEL_COLOR          = rl.WHITE
 LABEL_HORIZONTAL_PADDING = 40
-COMPLICATION_GREY    = rl.Color(0xAA, 0xAA, 0xAA, 255)
 PRESSED_SCALE = 1.15 if DO_ZOOM else 1.07
 
 class BigButtonBP(BigButton):
   def __init__(self, text: str, value: str = "", icon: Union[str, rl.Texture, None] = None,
                scroll: bool = False, tint: rl.Color = rl.WHITE, is_active: Callable[[], bool] = None,
-               value_size: int = COMPLICATION_SIZE):
+               value_size: int = COMPLICATION_SIZE, icon_size: int | None = None):
     # BluePilot: Convert string icon paths to pre-loaded textures (upstream removed string support)
     if isinstance(icon, str) and icon:
-      icon = gui_app.texture(icon)
+      if icon_size is not None:
+        icon = gui_app.texture(icon, icon_size, icon_size)
+      else:
+        icon = gui_app.texture(icon)
     elif isinstance(icon, str):
       icon = None
     BigButton.__init__(self, text, value, icon, scroll)
@@ -27,6 +29,27 @@ class BigButtonBP(BigButton):
     self.get_is_active = is_active
 
     self._sub_label.set_font_size(value_size)
+
+  def _width_hint(self) -> int:
+    # Shrink label area so wrapped text never overlaps the icon drawn at top-right
+    if self._txt_icon:
+      return int(self._rect.width - self.LABEL_HORIZONTAL_PADDING * 2 - self._txt_icon.width - 20)
+    return super()._width_hint()
+
+  def _draw_content(self, btn_y: float):
+    # BluePilot: measure both labels and shrink label font so they don't overlap
+    w = self._width_hint()
+    avail = self._rect.height - self.LABEL_VERTICAL_PADDING * 2
+
+    if self.value:
+      sub_h = self._sub_label.get_content_height(w)
+      max_label_h = avail - sub_h
+      if max_label_h > 0:
+        self._label.set_font_size(self._get_label_font_size())
+        while self._label.get_content_height(w) > max_label_h and self._label.font_size > 12:
+          self._label.set_font_size(self._label.font_size - 1)
+
+    super()._draw_content(btn_y)
 
   def set_checked(self, checked: bool):
     self._checked = checked
@@ -85,12 +108,14 @@ class BigMultiToggleBP(BigToggleBP, BigMultiToggle):
     BigMultiToggle._load_images(self)
 
   def _get_label_font_size(self):
-    font_size = BigMultiToggle._get_label_font_size(self)
-    return font_size - 10
+    # Multi-toggle has a narrower label area (pill column on the right takes ~84 px).
+    # Drop a couple points so the label starts at a size that usually fits in one wrap;
+    # auto-shrink in BigButton._draw_content handles anything still too long.
+    return BigMultiToggle._get_label_font_size(self) - 4
 
   def _draw_content(self, btn_y: float):
     # don't draw pill from BigToggle
-    BigToggleBP._draw_content(self, btn_y)
+    BigButton._draw_content(self, btn_y)
 
     checked_idx = self._options.index(self.value)
 
@@ -130,10 +155,11 @@ class BigMultiParamToggleBoolBP(BigMultiParamToggleBP):
 
   def _handle_mouse_release(self, mouse_pos):
     # Advance option and update display (BigMultiToggle), but do NOT call BigMultiParamToggle's
-    # put_nonblocking(self._param, new_idx) — param is BOOL, so we must use put_bool_nonblocking.
+    # put(self._param, new_idx) — param is BOOL, so we must use put_bool.
     BigMultiToggle._handle_mouse_release(self, mouse_pos)
     new_idx = self._options.index(self.value)
-    self._params.put_bool(self._param, bool(new_idx))
+    self._params.put_bool(self._param, bool(new_idx), block=False)
+
 
 
 class BigParamControlBP(BigToggleBP, BigParamControl):

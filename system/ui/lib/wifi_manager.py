@@ -27,6 +27,7 @@ from openpilot.system.ui.lib.networkmanager import (NM, NM_WIRELESS_IFACE, NM_80
                                                     NM_IP4_CONFIG_IFACE, NM_PROPERTIES_IFACE, NMDeviceState, NMDeviceStateReason)
 
 from openpilot.common.bluepilot import is_bluepilot
+from openpilot.system.hardware import PC
 
 try:
   from openpilot.common.params import Params
@@ -170,7 +171,8 @@ class WifiManager:
       self._conn_monitor = open_dbus_connection_blocking(bus="SYSTEM")  # used by state monitor thread
       self._nm = DBusAddress(NM_PATH, bus_name=NM, interface=NM_IFACE)
     except FileNotFoundError:
-      cloudlog.exception("Failed to connect to system D-Bus")
+      if not PC:
+        cloudlog.exception("Failed to connect to system D-Bus")
       self._router_main = None
       self._conn_monitor = None
       self._exit = True
@@ -532,8 +534,8 @@ class WifiManager:
         dev_type = self._router_main.send_and_get_reply(Properties(dev_addr).get('DeviceType')).body[0][1]
         if dev_type == adapter_type:
           return str(device_path)
-    except Exception as e:
-      cloudlog.exception(f"Error getting adapter type {adapter_type}: {e}")
+    except Exception:
+      pass
     return None
 
   def _init_connections(self) -> None:

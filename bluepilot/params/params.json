@@ -103,9 +103,9 @@
       "enabled": true
     },
     {
-      "name": "FordPrefHybridGaugeStyle",
-      "default": "flat",
-      "type": "string",
+      "name": "FordPrefGaugeStyle",
+      "default": 0,
+      "type": "int",
       "flags": ["PERSISTENT", "BACKUP"],
       "create_default": true,
       "enabled": true
@@ -166,6 +166,36 @@
       "type": "float",
       "flags": ["PERSISTENT", "BACKUP"],
       "ccProp": "lane_change_factor_high",
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordPrefLateralControl",
+      "default": 0,
+      "type": "int",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordAngleLowSpeedFactor",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 1.5,
+      "type": "float",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "ccProp": "FordAngleLowSpeedFactor",
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordAngleHighSpeedFactor",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 1.5,
+      "type": "float",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "ccProp": "FordAngleHighSpeedFactor",
       "create_default": true,
       "enabled": true
     },
@@ -311,6 +341,22 @@
     {
       "name": "ShowBlindspotOverlay",
       "default": true,
+      "type": "bool",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "BPRainbowLines",
+      "default": false,
+      "type": "bool",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "BPRadRacerTheme",
+      "default": false,
       "type": "bool",
       "flags": ["PERSISTENT", "BACKUP"],
       "create_default": true,

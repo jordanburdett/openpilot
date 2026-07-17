@@ -16,6 +16,7 @@ https://www.f150gen14.com/forum/threads/introducing-bluepilot-a-ford-specific-fo
 """
 
 from collections import namedtuple, deque
+from enum import IntEnum
 
 import cereal.messaging as messaging
 import numpy as np
@@ -27,17 +28,18 @@ from opendbc.car.lateral import ISO_LATERAL_ACCEL, apply_std_steer_angle_limits
 from opendbc.car.vehicle_model import VehicleModel
 from opendbc.car.ford.values import CarControllerParams, FordFlags
 from opendbc.sunnypilot.car.ford.values_ext import BP_ANGLE_LIMITS, CURVATURE_MAX
+from opendbc.sunnypilot.car.ford.human_turn import HumanTurnDetector
 from selfdrive.modeld.constants import ModelConstants
+
+
+class PrimaryLateralControl(IntEnum):
+  curvature = 0
+  angle = 1
 
 
 # CAN FD lateral-accel cap (match opendbc/car/ford/carcontroller.py apply_ford_curvature_limits)
 AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation
 MAX_LATERAL_ACCEL = ISO_LATERAL_ACCEL - (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)
-
-# Human turn reset: require sustained hands-on + large angle (avoids reset on small wheel nudges in a curve)
-HUMAN_TURN_ANGLE_DEG = 45.0
-HUMAN_TURN_HOLD_S = 1.5
-_STEER_DT = CarControllerParams.STEER_STEP * DT_CTRL  # 20 Hz lateral tick
 
 
 # Result namedtuple returned by LateralCurvExt.update()
@@ -54,17 +56,26 @@ LateralResult = namedtuple('LateralResult', [
 
 def apply_ford_curvature_limits_ext(apply_curvature, apply_curvature_last, current_curvature,
                                      v_ego_raw, steering_angle, lat_active, CP):
-  """Extended version of apply_ford_curvature_limits that returns (apply_curvature, max_curvature).
+  """Extended version of apply_ford_curvature_limits that returns
+  (apply_curvature, max_curvature, curvature_deviation_limited).
 
   The max_curvature value is used by _calculate_lateral_uncertainty() for the steering
   torque bar visualization. Stock version returns only apply_curvature.
+
+  curvature_deviation_limited (BluePilot): True when the current_curvature +- CURVATURE_ERROR
+  clip below actually constrained the commanded curvature this frame -- i.e. the desired
+  maneuver was limited by deviation from measured current curvature, not by rate-of-change
+  (apply_std_steer_angle_limits below is a separate limiter with its own telemetry).
   """
   max_curvature = 1  # large initial value
+  curvature_deviation_limited = False
 
   # No blending at low speed due to lack of torque wind-up and inaccurate current curvature
   if v_ego_raw > 9:
+    apply_curvature_pre_error_clip = apply_curvature
     apply_curvature = np.clip(apply_curvature, current_curvature - CarControllerParams.CURVATURE_ERROR,
                               current_curvature + CarControllerParams.CURVATURE_ERROR)
+    curvature_deviation_limited = bool(abs(apply_curvature - apply_curvature_pre_error_clip) > 1e-9)
     max_curvature = abs(current_curvature) + CarControllerParams.CURVATURE_ERROR
 
   # Curvature rate limit after driver torque limit (same inputs/order as apply_ford_curvature_limits)
@@ -86,7 +97,7 @@ def apply_ford_curvature_limits_ext(apply_curvature, apply_curvature_last, curre
     apply_curvature = float(np.clip(apply_curvature, -curvature_accel_limit, curvature_accel_limit))
     max_curvature = np.minimum(max_curvature, abs(curvature_accel_limit))
 
-  return apply_curvature, max_curvature
+  return apply_curvature, max_curvature, curvature_deviation_limited
 
 
 class LateralCurvExt:
@@ -100,20 +111,26 @@ class LateralCurvExt:
 
   def __init__(self, CP, CP_SP):
     # SubMaster for model data, live parameters, and selfdrive state
-    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState'])
+    # liveDelay is consumed by LateralAngleExt (variable lookup time); harmless for curvature mode.
+    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState', 'liveDelay'])
     self.VM = VehicleModel(CP)
     self.model = None
     self.lp = None
     self.ss = None
 
+    # Primary lateral control variable: consumed by CarController's lateral dispatch.
+    self.primary_lateral_control = PrimaryLateralControl.curvature
+
     # Toggles (updated from Params each frame)
-    self.enable_human_turn_detection = True
-    self.enable_lane_positioning = False
-    self.custom_profile = 0
+    self.enable_human_turn_detection_curv = True
+    self.enable_lane_positioning_curv = False
+    self.custom_profile_curv = 0
 
     # Precision/ramp control
     self.precision_type = 1  # 1=Precise, 0=Comfortable
     self.lateralUncertainty = 0.0
+    # BluePilot: deviation-from-current-curvature telemetry (see carcontroller.py)
+    self.bp_curvature_deviation_limited = False
 
     # Predicted curvature blending
     self.curvature_lookup_time = 0.2  # seconds into the future for curvature extraction
@@ -121,15 +138,15 @@ class LateralCurvExt:
     self.pc_blend_ratio_bp = [0.0, 0.001]  # curvature breakpoints (1/m)
     self.pc_blend_ratio_low = 0.40
     self.pc_blend_ratio_high = 0.40
-    self.pc_blend_ratio_low_C = 0.40   # from UI when custom_profile == 1
-    self.pc_blend_ratio_high_C = 0.40  # from UI when custom_profile == 1
-    self.pc_blend_ratio_low_C_UI = 0.40   # set by update_lateral_params()
-    self.pc_blend_ratio_high_C_UI = 0.40  # set by update_lateral_params()
+    self.pc_blend_ratio_low_C = 0.40   # from UI when custom_profile_curv == 1
+    self.pc_blend_ratio_high_C = 0.40  # from UI when custom_profile_curv == 1
+    self.pc_blend_ratio_low_C_UI_curv = 0.40   # set by update_lateral_params()
+    self.pc_blend_ratio_high_C_UI_curv = 0.40  # set by update_lateral_params()
 
     # Lane change smoothing
     self.lane_change_factor_bp = [4.4, 40.23]  # speed breakpoints (m/s)
     self.lane_change_factor_low = 0.95
-    self.lane_change_factor_high = 0.85  # updated from UI
+    self.lane_change_factor_high_curv = 0.85  # updated from UI
     self.lane_change = False
     self.lane_change_last = False
 
@@ -142,9 +159,9 @@ class LateralCurvExt:
     # Lane-change smoothing for curvature_rate; keep >= tightest BP rate step (0.00008 at 25 m/s)
     self.max_curvature_rate_change = 0.00025
 
-    # Human turn detection
+    # Human turn detection (shared with angle mode — see human_turn.HumanTurnDetector)
+    self.human_turn_detector = HumanTurnDetector()
     self.human_turn = False
-    self.human_turn_hold_timer_s = 0.0
     self.post_reset_ramp_active = False
     self.reset_steering_last = False
 
@@ -162,15 +179,15 @@ class LateralCurvExt:
     self.large_curve_factor_v = [self.large_curve_factor_low, self.large_curve_factor_high]
 
     # Path offset
-    self.custom_path_offset = 0.0  # from UI
+    self.custom_path_offset_curv = 0.0  # from UI
     self.path_offset_lookup_time = 0.2  # seconds
     self.min_laneline_confidence_bp = [0.6, 0.8]
-    self.enable_lanefull_mode = True
+    self.enable_lane_full_mode_curv = True
 
     # PID-based path angle for lane centering
     self.path_angle_filter_samples = 3
     self.path_angle_deque = deque(maxlen=self.path_angle_filter_samples)
-    self.LC_PID_gain_UI = 0.0
+    self.LC_PID_gain_UI_curv = 0.0
     self.LC_PID_gain = 3.0
     self.LC_PID_k_p = 0.25
     self.LC_PID_k_i = 0.05
@@ -196,15 +213,22 @@ class LateralCurvExt:
 
   def update_lateral_params(self, params):
     """Read lateral-related Params from the UI. Called each frame."""
-    self.enable_human_turn_detection = params.get_bool("enable_human_turn_detection")
-    self.lane_change_factor_high = float(params.get("lane_change_factor_high", return_default=True))
-    self.pc_blend_ratio_high_C_UI = float(params.get("pc_blend_ratio_high_C_UI", return_default=True))
-    self.pc_blend_ratio_low_C_UI = float(params.get("pc_blend_ratio_low_C_UI", return_default=True))
-    self.enable_lane_positioning = params.get_bool("enable_lane_positioning")
-    self.custom_path_offset = float(params.get("custom_path_offset", return_default=True))
-    self.enable_lanefull_mode = params.get_bool("enable_lane_full_mode")
-    self.custom_profile = int(params.get("custom_profile", return_default=True))
-    self.LC_PID_gain_UI = float(params.get("LC_PID_gain_UI", return_default=True))
+    self.enable_human_turn_detection_curv = params.get_bool("enable_human_turn_detection_curv")
+    self.lane_change_factor_high_curv = float(params.get("lane_change_factor_high_curv", return_default=True))
+    self.pc_blend_ratio_high_C_UI_curv = float(params.get("pc_blend_ratio_high_C_UI_curv", return_default=True))
+    self.pc_blend_ratio_low_C_UI_curv = float(params.get("pc_blend_ratio_low_C_UI_curv", return_default=True))
+    self.enable_lane_positioning_curv = params.get_bool("enable_lane_positioning_curv")
+    self.custom_path_offset_curv = float(params.get("custom_path_offset_curv", return_default=True))
+    self.enable_lane_full_mode_curv = params.get_bool("enable_lane_full_mode_curv")
+    self.custom_profile_curv = int(params.get("custom_profile_curv", return_default=True))
+    self.LC_PID_gain_UI_curv = float(params.get("LC_PID_gain_UI_curv", return_default=True))
+
+    self.primary_lateral_control = PrimaryLateralControl(params.get("FordPrefLateralControl", return_default=True) or 0)
+
+  def _ensure_lateral_curv_initialized(self, CP):
+    # Compatibility shim for LateralAngleExt, which calls this as a lazy-init guard. In this
+    # branch LateralCurvExt state is initialized eagerly in __init__, so nothing to do here.
+    pass
 
   def update_sm(self):
     """Update SubMaster and vehicle model. Called each frame before lateral/long update."""
@@ -245,6 +269,7 @@ class LateralCurvExt:
     reset_steering = 0
     ramp_type = 2
     lateralUncertainty = 0.0
+    curvature_deviation_limited = False
 
     if CC.latActive:
       self.precision_type = 1
@@ -252,10 +277,10 @@ class LateralCurvExt:
       steeringAngleDeg_PV = CS.out.steeringAngleDeg
 
       # Select tuning profile
-      if self.custom_profile == 1:
-        self.pc_blend_ratio_low_C = self.pc_blend_ratio_low_C_UI
-        self.pc_blend_ratio_high_C = self.pc_blend_ratio_high_C_UI
-        self.LC_PID_gain = self.LC_PID_gain_UI
+      if self.custom_profile_curv == 1:
+        self.pc_blend_ratio_low_C = self.pc_blend_ratio_low_C_UI_curv
+        self.pc_blend_ratio_high_C = self.pc_blend_ratio_high_C_UI_curv
+        self.LC_PID_gain = self.LC_PID_gain_UI_curv
 
       self.pc_blend_ratio_v = [self.pc_blend_ratio_low_C, self.pc_blend_ratio_high_C]
 
@@ -282,7 +307,7 @@ class LateralCurvExt:
 
       # Lane change curvature smoothing
       lane_change_factor = interp(CS.out.vEgoRaw, self.lane_change_factor_bp,
-                                   [self.lane_change_factor_low, self.lane_change_factor_high])
+                                   [self.lane_change_factor_low, self.lane_change_factor_high_curv])
 
       if self.lane_change and self.model is not None:
         if self.model.meta.laneChangeDirection == 1 and requested_curvature < 0:
@@ -292,17 +317,12 @@ class LateralCurvExt:
           requested_curvature *= lane_change_factor
           self.precision_type = 0
 
-      # Human turn: steering pressed + |angle| > threshold continuously for HUMAN_TURN_HOLD_S (not just a nudge)
-      if not self.enable_human_turn_detection:
-        self.human_turn_hold_timer_s = 0.0
-      elif steeringPressed and abs(steeringAngleDeg_PV) > HUMAN_TURN_ANGLE_DEG:
-        self.human_turn_hold_timer_s += _STEER_DT
-      else:
-        self.human_turn_hold_timer_s = 0.0
-      self.human_turn = self.human_turn_hold_timer_s >= HUMAN_TURN_HOLD_S
+      # Human turn: sustained hands-on + large angle (not just a nudge) — see HumanTurnDetector
+      self.human_turn = self.human_turn_detector.update(
+        self.enable_human_turn_detection_curv, steeringPressed, steeringAngleDeg_PV)
 
       # Steering reset logic
-      if (self.human_turn and self.enable_human_turn_detection) or (CS.out.vEgoRaw < 0.1):
+      if self.human_turn or (CS.out.vEgoRaw < 0.1):
         reset_steering = 1
       if reset_steering == 1:
         requested_curvature = 0.0
@@ -311,7 +331,7 @@ class LateralCurvExt:
         self.curvature_rate_deque.clear()
 
       # Apply curvature limits (extended version returning max_curvature)
-      apply_curvature, max_curvature = apply_ford_curvature_limits_ext(
+      apply_curvature, max_curvature, curvature_deviation_limited = apply_ford_curvature_limits_ext(
         requested_curvature, apply_curvature_last, current_curvature,
         CS.out.vEgoRaw, 0, CC.latActive, CP)
 
@@ -384,28 +404,28 @@ class LateralCurvExt:
 
         # Laneline confidence
         laneline_confidence = min(self.model.laneLineProbs[1], self.model.laneLineProbs[2], laneline_width_tolerance)
-        if not self.enable_lanefull_mode:
+        if not self.enable_lane_full_mode_curv:
           laneline_confidence = 0.0
 
         laneline_path_offset_scale = interp(laneline_confidence, self.min_laneline_confidence_bp, [0.0, 1.0])
         path_offset = ((path_offset_position * (1 - laneline_path_offset_scale)) +
-                       (path_offset_lanelines * laneline_path_offset_scale)) + self.custom_path_offset
+                       (path_offset_lanelines * laneline_path_offset_scale)) + self.custom_path_offset_curv
 
       # No path offset during lane changes
       if self.lane_change:
         path_offset = 0
 
       # PID-based path angle for lane centering
-      path_offset_error = path_offset * (self.LC_PID_gain_UI / 100)
+      path_offset_error = path_offset * (self.LC_PID_gain_UI_curv / 100)
       LC_PID_speed_factor = interp(CS.out.vEgoRaw, self.LC_PID_speed_bp, self.LC_PID_speed_v)
       path_offset_error_adj = path_offset_error * LC_PID_speed_factor
 
-      if not self.enable_lane_positioning:
+      if not self.enable_lane_positioning_curv:
         path_offset_error_adj = 0.0
 
       path_angle_low_c = self.LC_PID_controller.update(path_offset_error_adj)
 
-      if not self.enable_lane_positioning:
+      if not self.enable_lane_positioning_curv:
         path_angle_low_c = 0.0
       if reset_steering == 1:
         path_angle_low_c = 0.0
@@ -465,6 +485,9 @@ class LateralCurvExt:
     self.curvature_rate_last = desired_curvature_rate
     self.path_offset_last = path_offset
     self.path_angle_last = path_angle
+    # BluePilot: did the current_curvature +- CURVATURE_ERROR clip constrain the commanded
+    # curvature this frame (deviation from measured, not rate-of-change)? See carcontroller.py.
+    self.bp_curvature_deviation_limited = curvature_deviation_limited
 
     return LateralResult(
       apply_curvature=apply_curvature,

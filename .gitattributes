@@ -41,8 +41,12 @@ selfdrive/assets/icons_mici/setup/widish_button_disabled.png -filter -diff -merg
 selfdrive/assets/icons_mici/setup/widish_button_pressed.png -filter -diff -merge
 selfdrive/assets/images/button_fan.png -filter -diff -merge
 selfdrive/assets/images/button_settings2.png -filter -diff -merge
+selfdrive/assets/images/spinner_bluepilot.png -filter -diff -merge
 selfdrive/assets/img_bluepilot_boot.jpg -filter -diff -merge
 selfdrive/assets/img_bluepilot_boot_mici.jpg -filter -diff -merge
 selfdrive/assets/offroad/icon_debug.png -filter -diff -merge
 selfdrive/assets/offroad/icon_flag.png -filter -diff -merge
 selfdrive/assets/offroad/icon_settings.png -filter -diff -merge
+
+# Small vendored font: store in git (not LFS) so pushes work without GitLab LFS (see .lfsconfig pushurl).
+third_party/bootstrap/bootstrap-icons.ttf -filter -diff -merge

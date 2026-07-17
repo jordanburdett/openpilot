@@ -14,6 +14,10 @@ from openpilot.system.hardware import HARDWARE, PC
 from openpilot.system.hardware.hw import Paths
 from openpilot.common.swaglog import cloudlog
 
+# BluePilot: comma / Konik / offline dongle ID switching
+from bluepilot.backend_switch import BACKEND_COMMA, BACKEND_OFFLINE, reconcile_backend
+# End BluePilot
+
 
 UNREGISTERED_DONGLE_ID = "UnregisteredDevice"
 
@@ -34,11 +38,19 @@ def register(show_spinner=False) -> str | None:
   """
   params = Params()
 
+  # BluePilot: swap/clear DongleId when BPConnectBackend changed. Non-comma backends skip the
+  # /persist comma dongle ID restore below — it would short-circuit Konik registration on
+  # devices built since 2/28/24. Offline never attempts network registration.
+  backend = reconcile_backend(params)
+  # End BluePilot
+
   dongle_id: str | None = params.get("DongleId")
-  if dongle_id is None and Path(Paths.persist_root()+"/comma/dongle_id").is_file():
+  if dongle_id is None and backend == BACKEND_COMMA and Path(Paths.persist_root()+"/comma/dongle_id").is_file():  # BluePilot: comma only
     # not all devices will have this; added early in comma 3X production (2/28/24)
     with open(Paths.persist_root()+"/comma/dongle_id") as f:
       dongle_id = f.read().strip()
+  elif dongle_id is None and backend == BACKEND_OFFLINE:  # BluePilot: no network against bogus hosts
+    dongle_id = UNREGISTERED_DONGLE_ID
 
   # Create registration token, in the future, this key will make JWTs directly
   jwt_algo, private_key, public_key = get_key_pair()

@@ -313,9 +313,13 @@ class Tici(HardwareBase):
         continue
       gov = 'ondemand' if powersave_enabled else 'performance'
       sudo_write(gov, f'/sys/devices/system/cpu/cpufreq/policy{n}/scaling_governor')
-      if not powersave_enabled:
-        # cap max core freq to 1689 Mhz
-        sudo_write('1689600', f'/sys/devices/system/cpu/cpufreq/policy{n}/scaling_max_freq')
+      # BluePilot: deliberately do NOT write scaling_max_freq here.
+      # Upstream/comma added a static `scaling_max_freq = 1689600` cap to this branch. That blunt
+      # cap overrides AGNOS's native per-core thermal-cpufreq cooling devices (thermal-cpufreq-0..7),
+      # pinning the cores to 1.69 GHz even when cold -> starves the UI/RT processes -> commIssue.
+      # Pre-sync (bp-sid-simple) never touched scaling_max_freq and ran fine through 3 years of 105F
+      # Texas sun, because the kernel thermal framework throttles max freq REACTIVELY by temperature.
+      # Leave frequency management to that native framework. If re-merging comma's cap, drop it here.
 
     # *** IRQ config ***
 

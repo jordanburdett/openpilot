@@ -9,7 +9,8 @@ from opendbc.car.interfaces import CarControllerBase, V_CRUISE_MAX
 from openpilot.common.params import Params
 
 # BluePilot: extension imports for lateral, longitudinal, and HUD control
-from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralCurvExt
+from opendbc.sunnypilot.car.ford.lateral_curv_ext import LateralCurvExt, PrimaryLateralControl
+from opendbc.sunnypilot.car.ford.lateral_angle_ext import LateralAngleExt
 from opendbc.sunnypilot.car.ford.longitudinal_ext import LongitudinalExt
 from opendbc.sunnypilot.car.ford.hud_ext import HudExt
 from opendbc.sunnypilot.car.ford import fordcan_ext
@@ -65,15 +66,17 @@ def apply_creep_compensation(accel: float, v_ego: float) -> float:
   return float(accel)
 
 
-# BluePilot: CarController inherits from LateralCurvExt, LongitudinalExt, HudExt, and ICBM
-# for full 4-signal lateral control, follow-aware longitudinal, and enhanced HUD messaging.
+# BluePilot: CarController inherits from LateralCurvExt, LateralAngleExt, LongitudinalExt, HudExt,
+# and ICBM for 4-signal lateral control (curvature- or angle-primary), follow-aware longitudinal,
+# and enhanced HUD messaging.
 # Init order: CarControllerBase first (sets self.CP, self.frame), then ext classes.
-class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
+class CarController(CarControllerBase, LateralCurvExt, LateralAngleExt, LongitudinalExt, HudExt,
                     IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     # BluePilot: initialize extension classes
     LateralCurvExt.__init__(self, CP, CP_SP)
+    LateralAngleExt.__init__(self, CP, CP_SP)
     LongitudinalExt.__init__(self, CP, CP_SP)
     HudExt.__init__(self, CP, CP_SP)
     # ICBM: base class sets state used at runtime, init for robustness
@@ -100,6 +103,7 @@ class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
 
     # BluePilot: read runtime params from UI
     LateralCurvExt.update_lateral_params(self, self.params)
+    LateralAngleExt.update_angle_params(self, self.params)
     self.disable_BP_lat_UI = self.params.get_bool("disable_BP_lat_UI")
     LongitudinalExt.update_long_params(self, self.params)
     HudExt.update_hud_params(self, self.params, self.CP)
@@ -156,14 +160,40 @@ class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
         else:
           can_sends.append(fordcan.create_lat_ctl_msg(self.packer, self.CAN, CC.latActive, 0., 0., -self.apply_curvature_last, 0.))
       else:
-        # BluePilot: do not run apply_ford_curvature_limits here or overwrite apply_curvature_last before
-        # LateralCurvExt.update. Panda rate-checks desired_curvature vs the last TX on the bus; that must match
+        # BluePilot: select the BP lateral strategy by primary control variable.
+        #   1 (angle)     -> LateralAngleExt: κ → path_angle (c1), apply_curvature held at 0.
+        #   0 (curvature) -> LateralCurvExt: full 4-signal curvature-primary (default).
+        # Both return a LateralResult packed identically below.
+        # Do not run apply_ford_curvature_limits here or overwrite apply_curvature_last before the
+        # strategy runs. Panda rate-checks desired_curvature vs the last TX on the bus; that must match
         # the prior frame's lat.apply_curvature only (not an intermediate stock-limited value).
-        lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
+        if self.primary_lateral_control == PrimaryLateralControl.angle:
+          lat = LateralAngleExt.update_angle_strategy(self, CC, CS, actuators, self.CP)
+        else:
+          lat = LateralCurvExt.update(self, CC, CS, actuators, self.apply_curvature_last, self.CP)
         self.apply_curvature_last = lat.apply_curvature
         self.lateralUncertainty = lat.lateralUncertainty
+        # BluePilot: rate-limit diagnostics for controllerStateBP. update_angle_strategy sets these on
+        # self (angle mode); curvature mode leaves them False (the path_angle ROC / sim aren't run there).
+        _angle_mode = self.primary_lateral_control == PrimaryLateralControl.angle
+        self.angleRateLimited = getattr(self, 'bp_angle_rate_limited', False) if _angle_mode else False
+        self.curvatureRateLimited = getattr(self, 'bp_curvature_rate_limited', False) if _angle_mode else False
+        # BluePilot: current-curvature deviation-clip diagnostic. Set by whichever strategy just ran
+        # (both lateral_curv_ext.update and lateral_angle_ext.update_angle_strategy set this), so it's
+        # meaningful in both modes -- not gated by _angle_mode like the two above.
+        self.curvatureDeviationLimited = getattr(self, 'bp_curvature_deviation_limited', False)
+        self.humanTurnLateralPaused = self.angle_human_turn_active if _angle_mode else False
+        self.stallBlipActive = self.angle_stall_blip_active if _angle_mode else False
 
-        lat_active = CC.latActive
+        # BluePilot: angle-mode human-turn override -- send lateral inactive (mode 0) while the
+        # driver manually turns, so the PSCM releases cleanly instead of stalling 2-3 s on
+        # re-engage (observed on Mach-E). Panda-clean: every ford.h check has a legitimate
+        # !steer_control_enabled branch for the zeroed frames; on release, path_angle ramps back
+        # from 0 through the soft ROC (no reset-bypass latch involvement). Curvature mode keeps
+        # its own reset_steering path (zeroed signals with mode still active) in LateralCurvExt.
+        # The stall blip (lateral_angle_ext.py) rides the same mode-0 path: a short pulse that
+        # resets the PSCM's post-override attenuation when the deviation clip deadlocks hands-free.
+        lat_active = CC.latActive and not (_angle_mode and (self.angle_human_turn_active or self.angle_stall_blip_active))
         if self.CP.flags & FordFlags.CANFD:
           mode = 1 if lat_active else 0
           counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
@@ -179,7 +209,22 @@ class CarController(CarControllerBase, LateralCurvExt, LongitudinalExt, HudExt,
 
     # send lka msg at 33Hz
     if (self.frame % CarControllerParams.LKA_STEP) == 0:
-      can_sends.append(fordcan.create_lka_msg(self.packer, self.CAN))
+      # BluePilot: tell ford.h whether angle mode is engaged, out-of-band from LMC/LMC2, packed into
+      # Lane_Assist_Data1's unused bits (read synchronously in ford_tx_hook, no separate CAN ID/RX
+      # needed). bypass_bp_lat means BP lateral is off entirely, so angle mode can't be engaged then.
+      # shadow_curvature is only meaningful in angle mode (self.bp_kappa_cmd is stale/unused CurvExt
+      # state otherwise, so force it to 0 there).
+      # Negated to match the sign convention path_angle/apply_curvature use on the wire (see
+      # -lat.path_angle/-lat.apply_curvature just above) -- ford.h's angle_meas (measured curvature,
+      # from raw yaw rate with no negation) is calibrated against that wire convention, not
+      # bp_kappa_cmd's internal one. Confirmed via safety_replay against a real route (2026-07-10):
+      # un-negated, shadow_curvature and angle_meas were consistently opposite-signed, so the
+      # deviation check found a "divergence" on every frame once speed crossed angle_error_min_speed.
+      angle_mode_engaged = (not self.disable_BP_lat_UI) and (self.primary_lateral_control == PrimaryLateralControl.angle)
+      shadow_curvature = -self.bp_kappa_cmd if angle_mode_engaged else 0.0
+      can_sends.append(fordcan_ext.create_lka_msg(
+        self.packer, self.CAN, CC.latActive, hud_control, angle_mode_engaged, shadow_curvature
+      ))
 
     ### longitudinal control ###
     # send acc msg at 50Hz

@@ -23,6 +23,7 @@ out vec4 finalColor;
 uniform vec2 squarePos;
 uniform float squareSize;
 uniform float offset;
+uniform float alpha;
 
 vec3 hsv2rgb(vec3 c)
 {
@@ -46,8 +47,7 @@ void main()
     t = fract(t + offset * 0.2);
 
     vec3 col = hsv2rgb(vec3(t, 1.0, 1.0));
-    //alpha 60%
-    finalColor = vec4(col, 0.6);
+    finalColor = vec4(col, alpha);
 }
 """
 
@@ -76,12 +76,14 @@ class RainbowShaderState:
       'squarePos': None,
       'squareSize': None,
       'offset': None,
+      'alpha': None,
       'mvp': None,
     }
 
     self.square_pos = rl.ffi.new("float[2]", [0, 0])
     self.square_size = rl.ffi.new("float *", 0.0)
     self.offset_val = rl.ffi.new("float *", 0.0)
+    self.alpha_val = rl.ffi.new("float *", 0.6)
 
   def initialize(self):
     if self.initialized:
@@ -111,7 +113,7 @@ class RainbowShaderState:
     self.initialized = False
 
 
-def draw_rainbow_polygon(origin_rect: rl.Rectangle, points: np.ndarray, rainbow_v: float = 1.0) -> None:
+def draw_rainbow_polygon(origin_rect: rl.Rectangle, points: np.ndarray, rainbow_v: float = 1.0, alpha: float = 0.6) -> None:
   """Draw a ribbon polygon with animated rainbow HSV colors."""
   if len(points) < 3:
     return
@@ -128,10 +130,12 @@ def draw_rainbow_polygon(origin_rect: rl.Rectangle, points: np.ndarray, rainbow_
   state.square_pos[1] = origin_rect.y
   state.square_size[0] = float(origin_rect.width)
   state.offset_val[0] = state.increment_offset(rainbow_v)
+  state.alpha_val[0] = float(np.clip(alpha, 0.0, 1.0))
 
   rl.set_shader_value(state.shader, state.locations['squarePos'], state.square_pos, UNIFORM_VEC2)
   rl.set_shader_value(state.shader, state.locations['squareSize'], state.square_size, UNIFORM_FLOAT)
   rl.set_shader_value(state.shader, state.locations['offset'], state.offset_val, UNIFORM_FLOAT)
+  rl.set_shader_value(state.shader, state.locations['alpha'], state.alpha_val, UNIFORM_FLOAT)
 
   rl.begin_shader_mode(state.shader)
   rl.draw_triangle_strip(tri_strip, len(tri_strip), rl.WHITE)
