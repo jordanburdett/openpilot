@@ -69,11 +69,20 @@ _BP_LATERAL_SCHEME_PARAM_RENAMES = (
 
 
 def _migrate_bp_lateral_scheme_params(_params):
+  # Marker is a STRING param (like the OnroadScreenOff*Migrated flags above): the original BOOL
+  # declaration made put("1") raise a type error inside the except below, so the marker never
+  # stuck and this re-ran (and re-seeded, clobbering user-tuned values) on every boot.
   if _params.get("BPLateralSchemeParamsMigratedV1") == BP_LATERAL_SCHEME_PARAMS_MIGRATION_VERSION:
     return
 
   try:
     for old_key, new_key in _BP_LATERAL_SCHEME_PARAM_RENAMES:
+      # Never overwrite a value that has already been written (by a previous migration run or by
+      # the user tuning the new key) -- makes re-runs harmless, and lets in-field devices that hit
+      # the every-boot re-seed keep whatever they have now instead of taking one final clobber.
+      if _params.get(new_key) is not None:
+        cloudlog.info(f"params_migration: {new_key} already set, not re-seeding")
+        continue
       old_val = _params.get(old_key, return_default=True)
       _params.put(new_key, old_val, block=True)
       cloudlog.info(f"params_migration: seeded {new_key} from {old_key} ({old_val})")
