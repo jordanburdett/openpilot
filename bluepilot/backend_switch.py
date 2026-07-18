@@ -116,6 +116,11 @@ def reconcile_backend(params) -> str:
     dongle_id = params.get("DongleId")
     registered = dongle_id is not None and dongle_id != UNREGISTERED_DONGLE_ID
 
+    # BluePilot: diagnostic -- runs on every boot regardless of branch below, so field logs
+    # always show what this function saw and decided, even on the common comma/comma no-op path.
+    cloudlog.event("bp_backend_reconcile", target=target, active=active, registered=registered,
+                   dongle_id=dongle_id)
+
     if target == active:
       # Keep the cache fresh for real backends after a successful registration.
       if target in CACHE_PARAM and registered and params.get(CACHE_PARAM[target]) != dongle_id:
