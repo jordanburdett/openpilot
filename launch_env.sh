@@ -39,7 +39,8 @@ if [ "$BP_CONNECT_BACKEND" = "1" ]; then
   export API_HOST="https://api.konik.ai"
   export ATHENA_HOST="wss://athena.konik.ai"
 elif [ "$BP_CONNECT_BACKEND" = "2" ]; then
-  export API_HOST="https://api.imoffline.net"
-  export ATHENA_HOST="wss://athena.imoffline.net"
+  # RFC 2606 .invalid never resolves, so offline mode can never egress
+  export API_HOST="https://api.invalid"
+  export ATHENA_HOST="wss://athena.invalid"
 fi
 # End BluePilot

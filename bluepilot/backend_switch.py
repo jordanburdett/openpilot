@@ -44,7 +44,7 @@ BACKEND_LABELS = {
 PAIRING_HOST = {
   BACKEND_COMMA: "connect.comma.ai",
   BACKEND_KONIK: "stable.konik.ai",
-  BACKEND_OFFLINE: "imoffline.net",
+  BACKEND_OFFLINE: "pairing.invalid",  # RFC 2606 .invalid never resolves
 }
 
 CACHE_PARAM = {
