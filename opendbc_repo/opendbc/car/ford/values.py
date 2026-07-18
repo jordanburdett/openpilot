@@ -175,6 +175,10 @@ class CAR(Platforms):
     [FordCarDocs("Ford Focus 2018-22", "Adaptive Cruise Control with Lane Centering", footnotes=[Footnote.FOCUS], hybrid=True)],  # mHEV only
     CarSpecs(mass=1350, wheelbase=2.7, steerRatio=15.0),
   )
+  FORD_MONDEO_MK5 = FordCANFDPlatformConfig(
+    [FordCarDocs("Ford Mondeo 2014-2022", "Adaptive Cruise Control with Lane Centering")],
+    CarSpecs(mass=1550, wheelbase=2.85, steerRatio=14.8),
+  )
   FORD_MAVERICK_MK1 = FordPlatformConfig(
     [
       FordCarDocs("Ford Maverick 2022", "LARIAT Luxury", hybrid=True),
