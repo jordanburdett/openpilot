@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 import json
 import jwt
@@ -37,11 +38,14 @@ def register(show_spinner=False) -> str | None:
   entirely.
   """
   params = Params()
+  register_start = time.monotonic()  # BluePilot: diagnostic timing for bp_register_* events
 
   # BluePilot: swap/clear DongleId when BPConnectBackend changed. Non-comma backends skip the
   # /persist comma dongle ID restore below — it would short-circuit Konik registration on
   # devices built since 2/28/24. Offline never attempts network registration.
   backend = reconcile_backend(params)
+  cloudlog.event("bp_register_start", backend=backend, api_host=os.environ.get("API_HOST"),
+                 athena_host=os.environ.get("ATHENA_HOST"), dongle_id_on_disk=params.get("DongleId"))
   # End BluePilot
 
   dongle_id: str | None = params.get("DongleId")
@@ -49,6 +53,7 @@ def register(show_spinner=False) -> str | None:
     # not all devices will have this; added early in comma 3X production (2/28/24)
     with open(Paths.persist_root()+"/comma/dongle_id") as f:
       dongle_id = f.read().strip()
+    cloudlog.event("bp_register_persist_restore", dongle_id=dongle_id)  # BluePilot: diagnostic
   elif dongle_id is None and backend == BACKEND_OFFLINE:  # BluePilot: no network against bogus hosts
     dongle_id = UNREGISTERED_DONGLE_ID
 
@@ -59,6 +64,7 @@ def register(show_spinner=False) -> str | None:
     dongle_id = UNREGISTERED_DONGLE_ID
     cloudlog.warning("missing public key")
   elif dongle_id is None:
+    cloudlog.event("bp_register_network_attempt", backend=backend)  # BluePilot: diagnostic
     if show_spinner:
       spinner = Spinner()
       spinner.update("registering device")
@@ -79,8 +85,10 @@ def register(show_spinner=False) -> str | None:
         spinner.update(f"registering device - serial: {serial}, IMEI: ({imei1}, {imei2})")
 
     backoff = 0
+    attempt = 0  # BluePilot: diagnostic
     start_time = time.monotonic()
     while True:
+      attempt += 1  # BluePilot: diagnostic
       try:
         register_token = jwt.encode({'register': True, 'exp': datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1)},
                                     cast(str, private_key), algorithm=jwt_algo)
@@ -96,17 +104,28 @@ def register(show_spinner=False) -> str | None:
           dongleauth = json.loads(resp.text)
           dongle_id = dongleauth["dongle_id"]
         break
-      except Exception:
+      except Exception as e:
+        # BluePilot: diagnostic -- attempt count/backoff/elapsed alongside the existing traceback
+        cloudlog.event("bp_register_attempt_failed", backend=backend, attempt=attempt, backoff=backoff,
+                       elapsed=time.monotonic() - start_time, error=str(e))
         cloudlog.exception("failed to authenticate")
         backoff = min(backoff + 1, 15)
         time.sleep(backoff)
 
       if time.monotonic() - start_time > 60 and show_spinner:
         spinner.update(f"registering device - serial: {serial}, IMEI: ({imei1}, {imei2})")
+        # BluePilot: diagnostic -- this early return never persists DongleId; the device stays
+        # unregistered for the rest of this boot with no further retry until the next register() call.
+        cloudlog.event("bp_register_timeout", backend=backend, attempts=attempt,
+                       elapsed=time.monotonic() - start_time)
         return UNREGISTERED_DONGLE_ID  # hotfix to prevent an infinite wait for registration
 
     if show_spinner:
       spinner.close()
+
+  # BluePilot: diagnostic -- final outcome for this register() call
+  cloudlog.event("bp_register_complete", backend=backend, dongle_id=dongle_id,
+                 elapsed=time.monotonic() - register_start)
 
   if dongle_id:
     params.put("DongleId", dongle_id, block=True)
