@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import fcntl
+import json
 import os
 import sys
 import signal
 import itertools
 import math
 import time
-from serial import Serial
+from serial import Serial, SerialException
 import datetime
 from typing import NoReturn
 from struct import unpack_from, calcsize, pack
@@ -182,6 +183,31 @@ def wait_for_modem():
     time.sleep(0.5)
 
 
+# BluePilot: diagnostics for the diag-port SerialException recovery below
+MODEM_STATE_PATH = "/dev/shm/modem"  # written by system/hardware/tici/modem.py
+
+
+def _read_modem_state() -> dict:
+  """Best-effort read of modem.py's shared state file. Used only to log which modem
+  model/state was active when the diag serial port faulted (see main())."""
+  try:
+    with open(MODEM_STATE_PATH) as f:
+      return json.load(f)
+  except Exception:
+    return {}
+
+
+def _reconnect_diag() -> ModemDiag:
+  """(Re)open the diag port and redo the quectel setup after a serial fault. Blocks until
+  the modem AT channel is back up, same as the initial connect at process start."""
+  wait_for_modem()
+  diag = ModemDiag()
+  setup_quectel(diag)
+  cloudlog.warning("quectel setup done (reconnect)")
+  return diag
+# End BluePilot
+
+
 def main() -> NoReturn:
   unpack_gps_meas, size_gps_meas = dict_unpacker(gps_measurement_report, True)
   unpack_gps_meas_sv, size_gps_meas_sv = dict_unpacker(gps_measurement_report_sv, True)
@@ -223,7 +249,30 @@ def main() -> NoReturn:
   pm = messaging.PubMaster(['qcomGnss', 'gpsLocation'])
 
   while 1:
-    opcode, payload = diag.recv()
+    # BluePilot: the diag port (/dev/ttyUSB0) can drop out from under us if the modem
+    # resets/re-enumerates (e.g. the new modem.py daemon dialing/redialing PPP, or its
+    # EG25-specific NV writes in _configure_modem()). Previously this SerialException was
+    # unhandled here, crashed the whole process, and -- since qcomgpsd has no
+    # restart_if_crash -- GPS stayed dead for the rest of the drive. Log enough to tell
+    # which modem model/state was active, then reconnect instead of dying.
+    try:
+      opcode, payload = diag.recv()
+    except SerialException as e:
+      modem_state = _read_modem_state()
+      cloudlog.event("bp_qcomgpsd_diag_fault", error=str(e), modem_version=modem_state.get("modem_version"),
+                     modem_state=modem_state.get("state"), iccid=modem_state.get("iccid"))
+      cloudlog.exception("qcomgpsd: diag serial fault, reconnecting")
+      try:
+        diag.serial.close()  # release the exclusive lock before reopening
+      except Exception:
+        pass
+      try:
+        diag = _reconnect_diag()
+      except Exception:
+        cloudlog.exception("qcomgpsd: failed to reconnect diag, retrying")
+        time.sleep(1.0)
+      continue
+    # End BluePilot
     if opcode != DIAG_LOG_F:
       cloudlog.error(f"Unhandled opcode: {opcode}")
       continue
