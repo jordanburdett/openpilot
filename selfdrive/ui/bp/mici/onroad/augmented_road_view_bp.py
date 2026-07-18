@@ -10,6 +10,8 @@ from openpilot.selfdrive.ui.bp.mici.onroad.cameraview_bp import MiciCameraViewBP
 from openpilot.selfdrive.ui.bp.mici.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.mici.onroad.hud_renderer_bp import MiciHudRendererBP
+from openpilot.selfdrive.ui.bp.onroad.driver_state_bp import DriverStateRendererBP
+from openpilot.selfdrive.ui.bp.lib.dm_icon_style import DMIconStyle
 from openpilot.selfdrive.ui.bp.mici.onroad.complication import MiciComplication
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import ConfidenceBallMiciBP
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
@@ -75,6 +77,7 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
 
     # BluePilot: Replace HUD renderer with BP version (brake coloring + powerflow)
     self._hud_renderer = MiciHudRendererBP()
+    self._driver_state_renderer = DriverStateRendererBP(DMIconStyle.COMMA_4)
 
     # BluePilot: Replace confidence ball with BP version on the left (MADS beam + enhanced coloring)
     self._confidence_ball = ConfidenceBallMiciBP()

@@ -1,7 +1,13 @@
 from enum import IntEnum
 
 from openpilot.common.params import Params
-from openpilot.common.params_pyx import UnknownKeyName
+from openpilot.selfdrive.ui.bp.lib.int_enum_param import (
+  ensure_int_enum_param_initialized,
+  get_int_enum_param,
+)
+
+
+PARAM_KEY = "BPSteeringWheelIconStyle"
 
 
 class SteeringWheelIconStyle(IntEnum):
@@ -11,32 +17,12 @@ class SteeringWheelIconStyle(IntEnum):
 
 def get_steering_wheel_icon_style(params: Params, device_default: SteeringWheelIconStyle) -> SteeringWheelIconStyle:
   """Return the configured wheel style without modifying Params."""
-  try:
-    raw_style = params.get("BPSteeringWheelIconStyle")
-  except UnknownKeyName:
-    # BluePilot: Allow UI development before common/params_pyx.so has been rebuilt.
-    return device_default
-
-  try:
-    style = SteeringWheelIconStyle(raw_style) if raw_style is not None else device_default
-  except (TypeError, ValueError):
-    style = device_default
-
-  return style
+  return get_int_enum_param(params, PARAM_KEY, SteeringWheelIconStyle, device_default)
 
 
 def ensure_steering_wheel_icon_style_initialized(
-  params: Params, device_default: SteeringWheelIconStyle,
+  params: Params,
+  device_default: SteeringWheelIconStyle,
 ) -> SteeringWheelIconStyle:
   """Persist the device default when the wheel-style param is missing or invalid."""
-  style = get_steering_wheel_icon_style(params, device_default)
-
-  try:
-    raw_style = params.get("BPSteeringWheelIconStyle")
-  except UnknownKeyName:
-    return style
-
-  if raw_style != int(style):
-    params.put("BPSteeringWheelIconStyle", int(style), block=False)
-
-  return style
+  return ensure_int_enum_param_initialized(params, PARAM_KEY, SteeringWheelIconStyle, device_default)
