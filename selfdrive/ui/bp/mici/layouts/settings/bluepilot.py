@@ -1,4 +1,4 @@
-"""BluePilot MICI settings — master layout.  System items inline; Vehicle, Visuals, Longitudinal, Lateral as sub-panels."""
+"""BluePilot MICI settings — master layout with category sub-panels."""
 
 from collections.abc import Callable
 
@@ -18,6 +18,7 @@ from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.vehicle_mici import VehicleLayoutMici
+from openpilot.selfdrive.ui.bp.mici.layouts.settings.audio_mici import AudioLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.visuals_mici import VisualsLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.longitudinal_mici import LongitudinalLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.lateral_mici import LateralLayoutMici
@@ -31,7 +32,7 @@ class BluePilotBigButton(BigButtonBP):
 
 
 class BluePilotLayoutMici(NavScroller):
-  """Top-level BluePilot settings: System items inline, four sub-panels for the rest."""
+  """Top-level BluePilot settings: System items inline, five sub-panels for the rest."""
 
   def __init__(self, back_callback: Callable[[], None]):
     super().__init__()
@@ -81,6 +82,12 @@ class BluePilotLayoutMici(NavScroller):
     )
     vehicle_btn.set_click_callback(lambda: gui_app.push_widget(vehicle_panel))
 
+    audio_panel = AudioLayoutMici()
+    audio_btn = BluePilotBigButton(
+      tr("audio"), "", "icons_mici/microphone.png", icon_size=80,
+    )
+    audio_btn.set_click_callback(lambda: gui_app.push_widget(audio_panel))
+
     visuals_panel = VisualsLayoutMici()
     visuals_btn = BluePilotBigButton(
       tr("visuals"), "", "icons_mici/settings.png", icon_size=80,
@@ -104,6 +111,7 @@ class BluePilotLayoutMici(NavScroller):
       self.show_web_routes_qr,
       self.preferred_network_btn,
       vehicle_btn,
+      audio_btn,
       visuals_btn,
       self.primary_lateral_control,
       lat_btn,

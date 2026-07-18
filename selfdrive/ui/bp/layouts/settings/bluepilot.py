@@ -24,6 +24,7 @@ from openpilot.selfdrive.ui.bp.lib.dm_icon_style import (
   ensure_dm_icon_style_initialized,
   get_dm_icon_style,
 )
+from openpilot.selfdrive.ui.bp.lib.custom_sound import get_custom_sound_selection
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import GaugeStyle
 
@@ -77,6 +78,7 @@ class BluePilotLayout(Widget):
       ("BPHideOnroadBorder", self._hide_onroad_border),
       ("BPShowConfidenceBall", self._show_confidence_ball),
       ("BPAnimateSteeringWheel", self._animate_steering_wheel),
+      ("BPUseCustomSounds", self._use_custom_sounds),
       ("FordPrefShowRadarLeadOverlay", self._show_ford_radar_overlay),
       ("FordPrefHybridBatteryStatus", self._show_hybrid_battery_status),
       ("FordPrefHybridPowerFlow", self._show_hybrid_power_flow),
@@ -208,6 +210,25 @@ class BluePilotLayout(Widget):
       callback=self._set_dm_icon_style,
       selected_index=dm_style_idx,
       icon="monitoring.png"
+    )
+
+    self._use_custom_sounds = toggle_item(
+      lambda: tr("Use Custom Engage/Disengage Sounds"),
+      lambda: tr("Replace the engage and disengage sounds with the selected sound pack."),
+      initial_state=self._safe_get_bool(self._params, "BPUseCustomSounds"),
+      callback=self._on_custom_sounds_toggled,
+      icon="microphone.png"
+    )
+
+    custom_sound_idx = int(get_custom_sound_selection(self._params))
+    self._custom_sound_selection_btn = multiple_button_item(
+      lambda: tr("Engage/Disengage Sound"),
+      lambda: tr("Choose the sound pack played when openpilot engages or disengages."),
+      buttons=[lambda: tr("Comma 4"), lambda: tr("Comma 3x"), lambda: tr("Tesla")],
+      button_width=225,
+      callback=self._set_custom_sound_selection,
+      selected_index=custom_sound_idx,
+      icon="microphone.png"
     )
 
     # Ford radar lead overlay toggle
@@ -623,6 +644,10 @@ class BluePilotLayout(Widget):
         self._show_hands_free_ui,
         self._vbatt_pause_charging,
       ]) +
+      _section(tr("Audio"), [
+        self._use_custom_sounds,
+        self._custom_sound_selection_btn,
+      ]) +
       _section(tr("Visuals"), [
         self._hide_onroad_border,
         self._disable_lane_line_status_color,
@@ -771,6 +796,14 @@ class BluePilotLayout(Widget):
     self._wheel_icon_style_btn.action_item.set_selected_button(wheel_style_idx)
     dm_style_idx = int(get_dm_icon_style(ui_state.params, DMIconStyle.COMMA_3X))
     self._dm_icon_style_btn.action_item.set_selected_button(dm_style_idx)
+    custom_sound_idx = int(get_custom_sound_selection(ui_state.params))
+    self._custom_sound_selection_btn.action_item.set_selected_button(custom_sound_idx)
+    custom_sounds_enabled = fresh.get(
+      "BPUseCustomSounds", self._safe_get_bool(ui_state.params, "BPUseCustomSounds")
+    )
+    self._custom_sound_selection_btn.action_item.set_enabled(
+      custom_sounds_enabled
+    )
 
     # Update button enabled states
     self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
@@ -956,6 +989,32 @@ class BluePilotLayout(Widget):
   def _set_dm_icon_style(self, button_index: int):
     """Handle DM icon style: 0 = comma 4, 1 = comma 3X."""
     self._params.put("BPDMStylingChoice", button_index)
+
+  def _set_custom_sound_selection(self, button_index: int):
+    """Handle engagement sound selection: 0 = Comma 4, 1 = Comma 3x, 2 = Tesla."""
+    previous = int(get_custom_sound_selection(self._params))
+    if button_index == previous:
+      return
+    self._params.put("BPCustSoundsSelection", button_index)
+    self._prompt_sound_reboot()
+
+  def _on_custom_sounds_toggled(self, state: bool) -> None:
+    self._toggle_callback(state, "BPUseCustomSounds")
+    self._custom_sound_selection_btn.action_item.set_enabled(state)
+    self._prompt_sound_reboot()
+
+  def _prompt_sound_reboot(self) -> None:
+    dialog = ConfirmDialog(
+      tr("For these sound changes to take effect, you will need to reboot your device."),
+      tr("Reboot now"),
+      cancel_text=tr("Reboot later"),
+      callback=self._handle_sound_reboot,
+    )
+    gui_app.push_widget(dialog)
+
+  def _handle_sound_reboot(self, result):
+    if result == DialogResult.CONFIRM:
+      self._params.put_bool("DoReboot", True)
 
   def _set_hybrid_gauge_size(self, button_index: int):
     """Handle hybrid gauge size button selection. Buttons are 0/1/2, param stores 1/2/3."""

@@ -4,6 +4,7 @@ import platform
 
 from cereal import car, custom
 from openpilot.common.params import Params
+from openpilot.common.bluepilot import is_bluepilot
 from openpilot.system.hardware import PC, TICI
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.system.hardware.hw import Paths
@@ -126,7 +127,9 @@ procs = [
 
   PythonProcess("sensord", "system.sensord.sensord", only_onroad, enabled=not PC),
   PythonProcess("ui", "selfdrive.ui.ui", always_run, restart_if_crash=True),
-  PythonProcess("soundd", "selfdrive.ui.soundd", driverview),
+  # BluePilot: use a fork-local subclass for optional custom sounds; upstream soundd remains unchanged.
+  PythonProcess("soundd", "selfdrive.ui.bp.soundd_bp" if is_bluepilot() else "selfdrive.ui.soundd", driverview),
+  # End BluePilot
   PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),
@@ -188,7 +191,6 @@ procs += [
 ]
 
 # BluePilot: portal and route preprocessor processes
-from openpilot.common.bluepilot import is_bluepilot
 if is_bluepilot():
   def _bp_portal_enabled(started, params, CP):
     return params.get_bool("EnableWebRoutesServer")

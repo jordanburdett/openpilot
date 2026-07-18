@@ -50,3 +50,6 @@ selfdrive/assets/offroad/icon_settings.png -filter -diff -merge
 
 # Small vendored font: store in git (not LFS) so pushes work without GitLab LFS (see .lfsconfig pushurl).
 third_party/bootstrap/bootstrap-icons.ttf -filter -diff -merge
+
+# BluePilot custom sounds: store directly in Git, not upstream GitLab LFS.
+selfdrive/assets/sounds/bluepilot/*.wav -filter -diff -merge
