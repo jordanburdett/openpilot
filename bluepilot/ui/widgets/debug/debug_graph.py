@@ -19,6 +19,10 @@ class GraphSeries:
   color: rl.Color
   line_width: float = 3.0
   fill_alpha: int = 0  # 0 = no fill, >0 = semi-transparent fill under curve
+  # Bead small circles along the line, spaced every MARKER_STRIDE points. This gives the
+  # series a shape distinct from a plain line -- e.g. so a yellow/green pair stays visually
+  # distinguishable for red-green colorblind users without changing either color.
+  beaded: bool = False
 
 
 @dataclass
@@ -49,6 +53,8 @@ class TimeSeriesGraph(Widget):
   LEGEND_ROW_HEIGHT = 26
   LEGEND_GAP = 8
   MIN_GRAPH_HEIGHT = 80
+  MARKER_STRIDE = 3   # draw a bead every Nth point
+  MARKER_RADIUS = 4.5
 
   def __init__(self, config: GraphConfig, series: list[GraphSeries]):
     super().__init__()
@@ -276,6 +282,13 @@ class TimeSeriesGraph(Widget):
       x2, y2 = points[i + 1]
       rl.draw_line_ex(rl.Vector2(x1, y1), rl.Vector2(x2, y2),
                       series.line_width, series.color)
+
+    # Bead small circles along the line so this series reads as a distinct shape,
+    # not just a distinct color (see GraphSeries.beaded)
+    if series.beaded:
+      for i in range(0, len(points), self.MARKER_STRIDE):
+        x, y = points[i]
+        rl.draw_circle(int(x), int(y), self.MARKER_RADIUS, series.color)
 
   def _draw_legend(self, gx: int, gw: int, legend_y: int, rect: rl.Rectangle):
     """Draw the legend with color swatches, labels, and current values."""

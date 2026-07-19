@@ -35,7 +35,7 @@ class LateralDebugPanel(Widget):
       ),
       series=[
         GraphSeries("Angle Desired", DebugColors.DESIRED_GREEN, fill_alpha=25),
-        GraphSeries("Angle Actual", DebugColors.ACTUAL_YELLOW, fill_alpha=25),
+        GraphSeries("Angle Actual", DebugColors.ACTUAL_YELLOW, fill_alpha=25, beaded=True),
         GraphSeries("Desired Curv", DebugColors.DESIRED_CURV_CYAN),
         GraphSeries("Actual Curv", DebugColors.ACTUAL_CURV_MAGENTA),
       ]

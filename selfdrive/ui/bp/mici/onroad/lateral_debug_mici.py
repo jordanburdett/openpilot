@@ -58,7 +58,7 @@ class LateralDebugMici(Widget):
       ),
       series=[
         GraphSeries("Desired", DebugColors.DESIRED_GREEN, fill_alpha=25),
-        GraphSeries("Actual",  DebugColors.ACTUAL_YELLOW,  fill_alpha=25),
+        GraphSeries("Actual",  DebugColors.ACTUAL_YELLOW,  fill_alpha=25, beaded=True),
       ]
     )
     self._last_push_time = 0.0
