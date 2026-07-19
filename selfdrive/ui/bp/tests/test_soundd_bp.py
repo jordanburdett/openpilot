@@ -103,6 +103,21 @@ def test_custom_sound_assets_are_soundd_compatible():
       assert np.any(samples)
 
 
+def test_tesla_sound_assets_have_device_speaker_frequency_content():
+  # The original Tesla captures are almost entirely below 500 Hz and can be
+  # inaudible on the device speakers. Keep most of each prepared asset above
+  # that range while retaining its original note sequence and envelope.
+  for path in SOUND_PACK_FILES[CustomSoundSelection.TESLA].values():
+    samples = _load_mono_sound(path)
+    spectrum = np.abs(np.fft.rfft(samples * np.hanning(samples.size))) ** 2
+    frequencies = np.fft.rfftfreq(samples.size, 1 / soundd_bp.SAMPLE_RATE)
+    total_energy = float(np.sum(spectrum))
+    device_audible_energy = float(np.sum(spectrum[frequencies >= 500]))
+
+    assert total_energy > 0
+    assert device_audible_energy / total_energy > 0.75
+
+
 def _custom_params(tmp_path, selection: CustomSoundSelection = CustomSoundSelection.TESLA) -> Params:
   params = Params(str(tmp_path))
   params.put_bool(CUSTOM_SOUNDS_ENABLED_PARAM, True, block=True)
