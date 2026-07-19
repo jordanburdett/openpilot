@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Request an engage or disengage chime without changing driving state."""
+"""Request an engage, disengage, or refusal chime without changing driving state."""
 
 import argparse
 import os
@@ -16,10 +16,11 @@ from openpilot.selfdrive.ui.bp.soundd_bp import (
 from openpilot.selfdrive.ui.soundd import SAMPLE_RATE
 
 
-ALERTS = ("engage", "disengage")
+ALERTS = ("engage", "disengage", "refuse")
 AUDIBLE_ALERTS = {
   "engage": car.CarControl.HUDControl.AudibleAlert.engage,
   "disengage": car.CarControl.HUDControl.AudibleAlert.disengage,
+  "refuse": car.CarControl.HUDControl.AudibleAlert.refuse,
 }
 
 
@@ -81,7 +82,7 @@ def main() -> None:
         play_direct(args.alert)
       return
 
-    print("Enter 'engage' or 'disengage' to play only that chime; 'q' exits.")
+    print("Enter 'engage', 'disengage', or 'refuse' to play only that chime; 'q' exits.")
     while True:
       try:
         command = input("sound> ").strip().lower()
@@ -94,7 +95,7 @@ def main() -> None:
         if not send_alert(test_socket, command):
           play_direct(command)
       elif command:
-        print("Expected 'engage', 'disengage', or 'q'.")
+        print("Expected 'engage', 'disengage', 'refuse', or 'q'.")
 
 
 if __name__ == "__main__":

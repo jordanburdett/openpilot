@@ -7,7 +7,9 @@ import numpy as np
 from cereal import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
+from openpilot.selfdrive.selfdrived.events import EVENTS, EventName
 from openpilot.sunnypilot.selfdrive.ui import quiet_mode
+from openpilot.sunnypilot.selfdrive.selfdrived.events_base import ET
 from openpilot.selfdrive.ui.bp import soundd_bp
 from openpilot.selfdrive.ui.bp.lib.custom_sound import (
   CUSTOM_SOUNDS_ENABLED_PARAM,
@@ -104,9 +106,9 @@ def test_custom_sound_assets_are_soundd_compatible():
 
 
 def test_tesla_sound_assets_have_device_speaker_frequency_content():
-  # The original Tesla captures are almost entirely below 500 Hz and can be
-  # inaudible on the device speakers. Keep most of each prepared asset above
-  # that range while retaining its original note sequence and envelope.
+  # The original Tesla engagement captures are almost entirely below 500 Hz
+  # and can be inaudible on the device speakers. Keep most of every prepared
+  # Tesla asset above that range.
   for path in SOUND_PACK_FILES[CustomSoundSelection.TESLA].values():
     samples = _load_mono_sound(path)
     spectrum = np.abs(np.fft.rfft(samples * np.hanning(samples.size))) ** 2
@@ -118,6 +120,11 @@ def test_tesla_sound_assets_have_device_speaker_frequency_content():
     assert device_audible_energy / total_energy > 0.75
 
 
+def test_parking_brake_and_gear_no_entry_events_use_refusal_alert():
+  for event in (EventName.parkBrake, EventName.wrongGear, EventName.reverseGear):
+    assert EVENTS[event][ET.NO_ENTRY].audible_alert == AudibleAlert.refuse
+
+
 def _custom_params(tmp_path, selection: CustomSoundSelection = CustomSoundSelection.TESLA) -> Params:
   params = Params(str(tmp_path))
   params.put_bool(CUSTOM_SOUNDS_ENABLED_PARAM, True, block=True)
@@ -125,7 +132,7 @@ def _custom_params(tmp_path, selection: CustomSoundSelection = CustomSoundSelect
   return params
 
 
-def test_soundd_bp_replaces_only_engagement_sounds(monkeypatch, tmp_path):
+def test_soundd_bp_replaces_tesla_sound_pack(monkeypatch, tmp_path):
   params = _custom_params(tmp_path)
   monkeypatch.setattr(quiet_mode, "Params", lambda: params)
 
@@ -136,12 +143,14 @@ def test_soundd_bp_replaces_only_engagement_sounds(monkeypatch, tmp_path):
 
 
 def test_soundd_bp_loads_each_comma_sound_pack(monkeypatch, tmp_path):
+  stock_refuse = _load_mono_sound(os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "refuse.wav"))
   for selection in (CustomSoundSelection.COMMA_4, CustomSoundSelection.COMMA_3X):
     params = _custom_params(tmp_path / selection.name, selection)
     monkeypatch.setattr(quiet_mode, "Params", lambda params=params: params)
     daemon = SounddBP()
     for alert, path in SOUND_PACK_FILES[selection].items():
       np.testing.assert_array_equal(daemon.loaded_sounds[alert], _load_mono_sound(path))
+    np.testing.assert_array_equal(daemon.loaded_sounds[AudibleAlert.refuse], stock_refuse)
 
 
 def test_soundd_bp_falls_back_to_stock_on_asset_error(monkeypatch, tmp_path):
@@ -154,5 +163,11 @@ def test_soundd_bp_falls_back_to_stock_on_asset_error(monkeypatch, tmp_path):
   monkeypatch.setitem(soundd_bp.SOUND_PACK_FILES, CustomSoundSelection.TESLA, missing_files)
 
   daemon = SounddBP()
-  stock_engage = _load_mono_sound(os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "engage.wav"))
-  np.testing.assert_array_equal(daemon.loaded_sounds[AudibleAlert.engage], stock_engage)
+  stock_files = {
+    AudibleAlert.engage: "engage.wav",
+    AudibleAlert.disengage: "disengage.wav",
+    AudibleAlert.refuse: "refuse.wav",
+  }
+  for alert, filename in stock_files.items():
+    stock_sound = _load_mono_sound(os.path.join(BASEDIR, "selfdrive", "assets", "sounds", filename))
+    np.testing.assert_array_equal(daemon.loaded_sounds[alert], stock_sound)

@@ -1,4 +1,4 @@
-"""BluePilot soundd extension for optional custom engagement sounds."""
+"""BluePilot soundd extension for optional custom alert sounds."""
 
 import hashlib
 import os
@@ -33,6 +33,7 @@ SOUND_PACK_FILES = {
   CustomSoundSelection.TESLA: {
     AudibleAlert.engage: os.path.join(CUSTOM_SOUND_DIR, "tesla_engage.wav"),
     AudibleAlert.disengage: os.path.join(CUSTOM_SOUND_DIR, "tesla_disengage.wav"),
+    AudibleAlert.refuse: os.path.join(CUSTOM_SOUND_DIR, "tesla_warning.wav"),
   },
 }
 SOUND_OUTPUT_DEVICE_ENV = "BP_SOUNDD_OUTPUT_DEVICE"
@@ -40,6 +41,7 @@ SOUND_TEST_CONTROL_ENV = "BP_SOUNDD_TEST_CONTROL"
 TEST_ALERTS = {
   b"engage": AudibleAlert.engage,
   b"disengage": AudibleAlert.disengage,
+  b"refuse": AudibleAlert.refuse,
 }
 
 
@@ -101,7 +103,7 @@ class SounddBP(Soundd):
 
   def load_sounds(self) -> None:
     # Load every upstream sound first. Any custom-sound failure therefore leaves
-    # soundd fully functional with the correct C3X/C4 stock engagement sounds.
+    # soundd fully functional with the correct device-default sounds.
     super().load_sounds()
     selection = _requested_sound_selection(self.params)
     if selection is None:
@@ -113,11 +115,11 @@ class SounddBP(Soundd):
         for alert, path in SOUND_PACK_FILES[selection].items()
       }
     except Exception:
-      cloudlog.exception("BluePilot: failed to load selected engagement sound pack; using device-default sounds")
+      cloudlog.exception("BluePilot: failed to load selected sound pack; using device-default sounds")
       return
 
     self.loaded_sounds.update(custom_sounds)
-    cloudlog.info(f"BluePilot: loaded {selection.name} engage/disengage sounds")
+    cloudlog.info(f"BluePilot: loaded {selection.name} sound pack")
 
   def get_stream(self, sd):
     """Allow local simulations to select an output without affecting devices."""
