@@ -35,7 +35,6 @@ class AudioLayoutMici(NavScroller):
 
   def _on_custom_sounds_toggled(self, enabled: bool) -> None:
     self.custom_sound_selection.set_enabled(enabled)
-    self._prompt_sound_reboot()
 
   def _on_sound_selection_changed(self, _selection: str) -> None:
     self._prompt_sound_reboot()

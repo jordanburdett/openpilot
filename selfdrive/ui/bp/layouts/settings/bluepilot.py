@@ -1001,7 +1001,6 @@ class BluePilotLayout(Widget):
   def _on_custom_sounds_toggled(self, state: bool) -> None:
     self._toggle_callback(state, "BPUseCustomSounds")
     self._custom_sound_selection_btn.action_item.set_enabled(state)
-    self._prompt_sound_reboot()
 
   def _prompt_sound_reboot(self) -> None:
     dialog = ConfirmDialog(
