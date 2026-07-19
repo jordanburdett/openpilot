@@ -53,8 +53,8 @@ class TimeSeriesGraph(Widget):
   LEGEND_ROW_HEIGHT = 26
   LEGEND_GAP = 8
   MIN_GRAPH_HEIGHT = 80
-  MARKER_STRIDE = 3   # draw a bead every Nth point
-  MARKER_RADIUS = 4.5
+  MARKER_STRIDE = 5   # draw a bead every Nth point
+  MARKER_RADIUS = 9.0
 
   def __init__(self, config: GraphConfig, series: list[GraphSeries]):
     super().__init__()
