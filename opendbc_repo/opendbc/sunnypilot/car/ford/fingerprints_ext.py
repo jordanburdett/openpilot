@@ -1,7 +1,7 @@
 """
 BluePilot Ford firmware version extensions.
 
-Contains FW_VERSIONS for BluePilot-only Ford platforms (Ford Edge MK2).
+Contains FW_VERSIONS for BluePilot-only Ford platforms (Ford Edge MK2, Ford Mondeo MK5).
 Merged into the main FW_VERSIONS dict at module load time in
 opendbc/car/ford/fingerprints.py via merge_fw_versions().
 """
@@ -29,21 +29,19 @@ FW_VERSIONS_EXT = {
     ],
   },
   CAR.FORD_MONDEO_MK5: {
+    # BluePilot: the original PR (#135) included several non-ASCII byte strings alongside each
+    # legit part number below -- e.g. a bare b'U', 0xff-padded blobs -- that look like NAK/error
+    # responses captured verbatim rather than real FW versions. Short/degenerate entries like
+    # those can spuriously match other Ford vehicles' unrelated ECU responses, making the overall
+    # fingerprint ambiguous and forcing manual selection. Removed; keeping only the part numbers.
     (Ecu.fwdCamera, 0x706, None): [
       b'KT4T-14F397-AE\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\x04\x10\x99\xda\xa9\x10\x1a\xa55d@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\x1e\xfc&\xc3H\x00\x00\x00\x00\x00',
     ],
     (Ecu.abs, 0x760, None): [
       b'KG9C-2D053-DF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\x15\x1e1\x12l\x97\x02\x010\x00',
-      b'U',
     ],
     (Ecu.eps, 0x730, None): [
       b'K2GC-14D003-AJ\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\xff\x00\x0b"\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\xff\xff\xff\xff\x00\xff\xff\xff\xff\x00\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-      b'\xff\xff\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
     ],
     (Ecu.fwdRadar, 0x764, None): [
       b'JX7T-14D049-AD\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
