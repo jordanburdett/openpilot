@@ -52,8 +52,9 @@ FW_VERSIONS_EXT = {
     (Ecu.debug, 0x7d0, None): [
       b'1U5T-14G374-DA\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
     ],
-    (Ecu.adas, 0x730, None): [
-      b'\xf1\x10DS-K2GC-3F964-AG\x00\x00\x00\x00\x00\x00\x00\x00',
-    ],
+    # BluePilot: removed an (Ecu.adas, 0x730, None) entry here -- b'\xf1\x10DS-K2GC-3F964-AG\x00...',
+    # 26 bytes with a non-ASCII \xf1\x10 prefix, same NAK/error-response signature as the garbage
+    # already stripped from this file (see the comment above). Mondeo is low-volume and non-US;
+    # manual vehicle selection remains available regardless.
   }
 }

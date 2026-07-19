@@ -21,7 +21,6 @@ ECU_ADDRESSES = {
   Ecu.shiftByWire: 0x732,  # Gear Shift Module (GSM)
   Ecu.debug: 0x7D0,        # Accessory Protocol Interface Module (APIM)
   Ecu.hud: 0x720,          # Instrument Cluster Module (ICM)
-  Ecu.adas: 0x730,         # BluePilot: Mondeo MK5 ADAS module response, shares PSCM's address
 }
 
 
