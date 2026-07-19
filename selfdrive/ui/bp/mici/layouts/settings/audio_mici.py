@@ -43,7 +43,7 @@ class AudioLayoutMici(NavScroller):
   def _prompt_sound_reboot(self) -> None:
     icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
     dialog = BigConfirmationDialog(
-      tr("For these sound changes to take effect, you will need to reboot your device. Swipe to reboot now, or go back to reboot later."),
+      tr("For these sound changes to take effect, you will need to reboot your device.\n\nTHIS REBOOT WILL DISENGAGE OPENPILOT.\n\nSwipe to reboot now, or go back to reboot later."),  # noqa: E501
       icon,
       confirm_callback=lambda: self.use_custom_sounds.params.put_bool("DoReboot", True, block=False),
     )

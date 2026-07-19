@@ -1005,7 +1005,7 @@ class BluePilotLayout(Widget):
 
   def _prompt_sound_reboot(self) -> None:
     dialog = ConfirmDialog(
-      tr("For these sound changes to take effect, you will need to reboot your device."),
+      tr("For these sound changes to take effect, you will need to reboot your device.\n\nTHIS REBOOT WILL DISENGAGE OPENPILOT."),
       tr("Reboot now"),
       cancel_text=tr("Reboot later"),
       callback=self._handle_sound_reboot,
