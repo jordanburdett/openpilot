@@ -135,6 +135,22 @@
       "enabled": true
     },
     {
+      "name": "BPUseCustomSounds",
+      "default": false,
+      "type": "bool",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "BPCustSoundsSelection",
+      "default": 0,
+      "type": "int",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "create_default": true,
+      "enabled": true
+    },
+    {
       "name": "FordPrefShowAnimatedWheelAngle",
       "default": true,
       "type": "bool",

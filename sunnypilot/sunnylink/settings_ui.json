@@ -2118,6 +2118,49 @@
           "unit": "V"
         },
         {
+          "key": "BPUseCustomSounds",
+          "widget": "toggle",
+          "needs_onroad_cycle": true,
+          "title": "[Audio] Use Custom Engage/Disengage Sounds",
+          "description": "Replace the engage and disengage sounds with the selected sound pack. For these sound changes to take effect, you will need to reboot your device.",
+          "enablement": [
+            {
+              "type": "offroad_only"
+            }
+          ]
+        },
+        {
+          "key": "BPCustSoundsSelection",
+          "widget": "multiple_button",
+          "needs_onroad_cycle": true,
+          "title": "[Audio] Engage/Disengage Sound",
+          "description": "Choose the sound pack played when openpilot engages or disengages. For these sound changes to take effect, you will need to reboot your device.",
+          "options": [
+            {
+              "value": 0,
+              "label": "Comma 4"
+            },
+            {
+              "value": 1,
+              "label": "Comma 3x"
+            },
+            {
+              "value": 2,
+              "label": "Tesla"
+            }
+          ],
+          "enablement": [
+            {
+              "type": "offroad_only"
+            },
+            {
+              "type": "param",
+              "key": "BPUseCustomSounds",
+              "equals": true
+            }
+          ]
+        },
+        {
           "key": "BPHideOnroadBorder",
           "widget": "toggle",
           "title": "[Visuals] Hide Onroad Border",

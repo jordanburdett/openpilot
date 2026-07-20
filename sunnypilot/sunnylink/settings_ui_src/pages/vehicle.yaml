@@ -44,6 +44,31 @@ sections:
     max: 14.0
     step: 0.1
     unit: V
+  # --- Audio ---
+  - key: BPUseCustomSounds
+    widget: toggle
+    needs_onroad_cycle: true
+    title: '[Audio] Use Custom Engage/Disengage Sounds'
+    description: Replace the engage and disengage sounds with the selected sound pack. For these sound changes to take effect, you will need to reboot your device.
+    enablement:
+    - $ref: '#/macros/offroad'
+  - key: BPCustSoundsSelection
+    widget: multiple_button
+    needs_onroad_cycle: true
+    title: '[Audio] Engage/Disengage Sound'
+    description: Choose the sound pack played when openpilot engages or disengages. For these sound changes to take effect, you will need to reboot your device.
+    options:
+    - value: 0
+      label: Comma 4
+    - value: 1
+      label: Comma 3x
+    - value: 2
+      label: Tesla
+    enablement:
+    - $ref: '#/macros/offroad'
+    - type: param
+      key: BPUseCustomSounds
+      equals: true
   # --- Visuals ---
   - key: BPHideOnroadBorder
     widget: toggle
