@@ -40,6 +40,7 @@ class GraphConfig:
   title_font_size: int = 52
   axis_font_size: int = 40  # x-axis time labels and y-axis scale labels
   legend_y_offset: int = 0  # shift legend text up (negative) without resizing the plot area
+  marker_radius: float = 9.0  # bead size for GraphSeries.beaded (TICI default; MICI uses a smaller value)
 
 
 class TimeSeriesGraph(Widget):
@@ -54,7 +55,6 @@ class TimeSeriesGraph(Widget):
   LEGEND_GAP = 8
   MIN_GRAPH_HEIGHT = 80
   MARKER_STRIDE = 5   # draw a bead every Nth point
-  MARKER_RADIUS = 9.0
 
   def __init__(self, config: GraphConfig, series: list[GraphSeries]):
     super().__init__()
@@ -288,7 +288,7 @@ class TimeSeriesGraph(Widget):
     if series.beaded:
       for i in range(0, len(points), self.MARKER_STRIDE):
         x, y = points[i]
-        rl.draw_circle(int(x), int(y), self.MARKER_RADIUS, series.color)
+        rl.draw_circle(int(x), int(y), self._config.marker_radius, series.color)
 
   def _draw_legend(self, gx: int, gw: int, legend_y: int, rect: rl.Rectangle):
     """Draw the legend with color swatches, labels, and current values."""

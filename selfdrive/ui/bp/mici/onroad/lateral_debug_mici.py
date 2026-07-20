@@ -55,6 +55,8 @@ class LateralDebugMici(Widget):
         # Lift the Desired/Actual legend clear of the "tap to close" hint below the graph,
         # while staying below the x-axis time labels.
         legend_y_offset=-20,
+        # MICI's screen is smaller than TICI's -- half-size beads so they don't overwhelm the line.
+        marker_radius=4.5,
       ),
       series=[
         GraphSeries("Desired", DebugColors.DESIRED_GREEN, fill_alpha=25),
