@@ -449,6 +449,17 @@ class BluePilotLayout(Widget):
       callback=self._select_connect_backend
     )
 
+    # Restore cached dongle ID — recovery for a device left unregistered by a backend
+    # switch (e.g. a pre-existing Konik registration from before this menu existed).
+    self._restore_dongle_action = ButtonAction(lambda: tr("RESTORE"), enabled=self._has_recoverable_dongle_id)
+    self._restore_dongle_action.set_value(lambda: self._get_recoverable_dongle_id_preview())
+    self._restore_dongle_btn = ListItem(
+      lambda: tr("Restore Cached Dongle ID"),
+      description=lambda: tr("If switching backends left this device unregistered, restore a previously registered ID found cached here. Only enabled when one is found."),
+      action_item=self._restore_dongle_action,
+      callback=self._restore_dongle_id
+    )
+
     # Lane line feedback trim — toggle + tuning floats
     # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
     primary_lat_idx = PrimaryLateralControl(self._params.get("FordPrefLateralControl", return_default=True) or 0)
@@ -605,6 +616,7 @@ class BluePilotLayout(Widget):
         self._clear_model_cache_btn,
         self._ui_debug_log,
         self._connect_backend_btn,
+        self._restore_dongle_btn,
         self._reset_menu_btn,
       ]) +
       _section(tr("Vehicle"), [
@@ -702,6 +714,44 @@ class BluePilotLayout(Widget):
   def _handle_connect_backend_reboot(self, result):
     if result == DialogResult.CONFIRM:
       self._params.put_bool("DoReboot", True)
+
+  def _get_recoverable_dongle_id(self) -> str | None:
+    try:
+      from bluepilot.backend_switch import find_recoverable_dongle_id
+      return find_recoverable_dongle_id(self._params)
+    except Exception:
+      return None
+
+  def _has_recoverable_dongle_id(self) -> bool:
+    return self._get_recoverable_dongle_id() is not None
+
+  def _get_recoverable_dongle_id_preview(self) -> str:
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return ""
+    return f"{candidate[:6]}…{candidate[-4:]}" if len(candidate) > 12 else candidate
+
+  def _restore_dongle_id(self):
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return
+
+    def handle_confirm(result: DialogResult):
+      if result == DialogResult.CONFIRM:
+        try:
+          from bluepilot.backend_switch import restore_cached_dongle_id
+          restore_cached_dongle_id(self._params, candidate)
+        except Exception:
+          cloudlog.exception("bp_dongle_id_recovery_ui failed")
+          return
+        dialog = ConfirmDialog(tr("Dongle ID restored. Reboot now to apply?"),
+                               tr("Reboot"), callback=self._handle_connect_backend_reboot)
+        gui_app.push_widget(dialog)
+
+    preview = self._get_recoverable_dongle_id_preview()
+    dialog = ConfirmDialog(tr("Restore cached dongle ID {preview}? This overwrites the current (unregistered) device ID.").format(preview=preview),
+                           tr("Restore"), callback=handle_confirm)
+    gui_app.push_widget(dialog)
 
   def _on_blinker_pause_changed(self, state: bool) -> None:
     self._toggle_callback(state, "BlinkerPauseLaneChange")
