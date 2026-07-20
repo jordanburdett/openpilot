@@ -330,7 +330,7 @@ FW_QUERY_CONFIG = FwQueryConfig(
   # non-essential for MK1 so the missing Ford-tagged matching-eligible EPS
   # response doesn't block matching. The unique TL38-2D053-AD (ABS) +
   # RB5T-14D049-AB (radar) FWs still identify MK1 cleanly.
-  non_essential_ecus={Ecu.eps: [CAR.FORD_F_150_LIGHTNING_MK1]},
+  non_essential_ecus={Ecu.eps: [CAR.FORD_F_150_LIGHTNING_MK1, CAR.FORD_EXPEDITION_MK4]},
   # Custom fuzzy fingerprinting function using platform and model year hints
   match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
 )
