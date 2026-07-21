@@ -57,6 +57,7 @@ sections:
       the Edge (its pinion sensor only reports a relative angle).'
     enablement:
     - $ref: '#/macros/offroad'
+    - $ref: '#/macros/not_ford_edge_mk2'
   # --- Audio ---
   - key: BPUseCustomSounds
     widget: toggle

@@ -2126,6 +2126,14 @@
           "enablement": [
             {
               "type": "offroad_only"
+            },
+            {
+              "type": "not",
+              "condition": {
+                "type": "capability",
+                "field": "platform",
+                "equals": "FORD_EDGE_MK2"
+              }
             }
           ]
         },

@@ -49,6 +49,14 @@ class BluePilotLayout(Widget):
     except UnknownKeyName:
       return default
 
+  @staticmethod
+  def _pinion_yaw_sensor_supported() -> bool:
+    """FORD_EDGE_MK2's pinion sensor only reports a relative angle (see
+    FORD_PINION_GEOMETRY_INDEX in opendbc/sunnypilot/car/ford/values_ext.py) -- the
+    safety/control layers already no-op the toggle there, so grey it out here too rather
+    than leaving a live-looking control that silently does nothing."""
+    return ui_state.CP is None or ui_state.CP.carFingerprint != "FORD_EDGE_MK2"
+
   def __init__(self):
     super().__init__()
     self._params = Params()
@@ -118,7 +126,8 @@ class BluePilotLayout(Widget):
       lambda: tr('Measures how the car is turning from the steering pinion angle sensor instead of a faulty RCM yaw sensor (symptoms: "Turn Exceeds Steering Limit" warnings, weak curve tracking, "Service AdvanceTrac"). Check with tools/ford_yaw_health_check.py. Applies the next time the car starts. Not available on the Edge.'),
       initial_state=self._safe_get_bool(self._params, "FordPrefSteerAngleCurvature"),
       callback=lambda state: self._toggle_callback(state, "FordPrefSteerAngleCurvature"),
-      icon="monitoring.png"
+      icon="monitoring.png",
+      enabled=self._pinion_yaw_sensor_supported,
     )
 
     # Lane line status color toggle (issue #109: option to keep lane lines grey instead of green when engaged)
