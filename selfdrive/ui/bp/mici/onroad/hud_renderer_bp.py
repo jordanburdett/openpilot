@@ -1,6 +1,7 @@
 import pyray as rl
 from openpilot.common.params import Params
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
+from opendbc.car.structs import ControllerStateBP
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.bp.mici.onroad.powerflow_gauge import MiciPowerflowGauge
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
@@ -15,6 +16,8 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
 # BluePilot: Override upstream Mici torque bar with BP shared state math.
 from openpilot.selfdrive.ui.bp.mici.onroad.torque_bar_bp import TorqueBarBP as TorqueBar
+
+LateralMode = ControllerStateBP.LateralMode
 
 class MiciHudRendererBP(HudRenderer):
   """BluePilot MICI HudRenderer with brake status coloring and powerflow gauge."""
@@ -31,8 +34,8 @@ class MiciHudRendererBP(HudRenderer):
     self._wheel_icon_style = ensure_steering_wheel_icon_style_initialized(self._bp_params, SteeringWheelIconStyle.COMMA_4)
     self._animate_wheel_param_counter = 0
     self.show_lateral_control = False
-    self.disable_bp_lat = True
-    self.primary_control = PrimaryLateralControl.curvature
+    # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
+    self.lateral_mode = None
     # BluePilot: Track overlay hit-area for click-to-toggle
     self._overlay_center_x = 0
     self._overlay_center_y = 0
@@ -60,9 +63,9 @@ class MiciHudRendererBP(HudRenderer):
       self._brakes_on = False
 
     self.show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
-    if(self.show_lateral_control):
-      self.disable_bp_lat = self._bp_params.get_bool("disable_BP_lat_UI")
-      self.primary_control = PrimaryLateralControl(self._bp_params.get("FordPrefLateralControl") or 0)
+    if self.show_lateral_control:
+      sm = ui_state.sm
+      self.lateral_mode = sm['controllerStateBP'].activeLateralMode if sm.alive['controllerStateBP'] else None
 
     bp_ui_log.state("MiciHudRenderer", "brakes_on", self._brakes_on)
 
@@ -141,7 +144,7 @@ class MiciHudRendererBP(HudRenderer):
 
   def _draw_lateral_control_overlay(self, center_x: int, center_y: int, wheel_size: int) -> None:
     """Draw a letter overlay indicating current lateral control mode (only when wheel is visible)."""
-    if not self.show_lateral_control or self._wheel_alpha_filter.x <= 0:
+    if not self.show_lateral_control or self._wheel_alpha_filter.x <= 0 or self.lateral_mode is None:
       self._overlay_size = 0
       return
 
@@ -150,13 +153,12 @@ class MiciHudRendererBP(HudRenderer):
     self._overlay_center_y = center_y
     self._overlay_size = text_size
 
-    if self.disable_bp_lat:
-      letter, color = "OP", rl.Color(100, 100, 100, 220)  # Reddish
+    if self.lateral_mode == LateralMode.angle:
+      letter, color = "A", rl.Color(50, 100, 255, 220)  # Blue-ish
+    elif self.lateral_mode == LateralMode.curvature:
+      letter, color = "C", rl.Color(255, 165, 0, 220)  # Orange
     else:
-      if self.primary_control == PrimaryLateralControl.angle:
-        letter, color = "A", rl.Color(50, 100, 255, 220)  # Blue-ish
-      else:
-        letter, color = "C", rl.Color(255, 165, 0, 220)  # Orange
+      letter, color = "OP", rl.Color(100, 100, 100, 220)  # Grey
 
     text_dims = measure_text_cached(self._font_bold, letter, text_size)
     text_x = center_x - text_dims.x / 2
@@ -170,7 +172,7 @@ class MiciHudRendererBP(HudRenderer):
 
   def _handle_mouse_press(self, mouse_pos):
     """Toggle FordPrefLateralControl between PrimaryLateralControl.curvature and .angle on overlay click."""
-    if self._overlay_size <= 0 or self.disable_bp_lat:
+    if self._overlay_size <= 0 or self.lateral_mode not in (LateralMode.curvature, LateralMode.angle):
       return
 
     hit_rect = rl.Rectangle(

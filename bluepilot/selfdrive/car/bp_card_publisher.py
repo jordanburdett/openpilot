@@ -131,6 +131,13 @@ def publish_controller_state_bp(CI, pm):
     cs_bp.curvatureDeviationLimited = getattr(CI.CC, "curvatureDeviationLimited", False)
     cs_bp.humanTurnLateralPaused = bool(getattr(CI.CC, "humanTurnLateralPaused", False))
     cs_bp.stallBlipActive = bool(getattr(CI.CC, "stallBlipActive", False))
+    # BluePilot: mode the controller actually ran, straight off the car controller (not Params).
+    if getattr(CI.CC, "disable_BP_lat_UI", True):
+      cs_bp.activeLateralMode = structs.ControllerStateBP.LateralMode.openpilot
+    elif getattr(CI.CC, "primary_lateral_control", 0) == 1:
+      cs_bp.activeLateralMode = structs.ControllerStateBP.LateralMode.angle
+    else:
+      cs_bp.activeLateralMode = structs.ControllerStateBP.LateralMode.curvature
 
     # BluePilot: settings snapshot -- refreshed at most every _SETTINGS_INTERVAL s so Params
     # reads don't add latency to every card.py tick.
