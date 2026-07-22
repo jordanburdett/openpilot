@@ -1,4 +1,4 @@
-"""BluePilot MICI settings — master layout.  System items inline; Vehicle, Visuals, Longitudinal, Lateral as sub-panels."""
+"""BluePilot MICI settings — master layout with category sub-panels."""
 
 from collections.abc import Callable
 
@@ -18,6 +18,7 @@ from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.vehicle_mici import VehicleLayoutMici
+from openpilot.selfdrive.ui.bp.mici.layouts.settings.audio_mici import AudioLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.visuals_mici import VisualsLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.longitudinal_mici import LongitudinalLayoutMici
 from openpilot.selfdrive.ui.bp.mici.layouts.settings.lateral_mici import LateralLayoutMici
@@ -31,7 +32,7 @@ class BluePilotBigButton(BigButtonBP):
 
 
 class BluePilotLayoutMici(NavScroller):
-  """Top-level BluePilot settings: System items inline, four sub-panels for the rest."""
+  """Top-level BluePilot settings: System items inline, five sub-panels for the rest."""
 
   def __init__(self, back_callback: Callable[[], None]):
     super().__init__()
@@ -63,6 +64,11 @@ class BluePilotLayoutMici(NavScroller):
       tr("connect backend"), "", "icons_mici/settings/device/reboot.png", icon_size=80,
     )
     self.connect_backend_btn.set_click_callback(self._select_connect_backend)
+    self.restore_dongle_btn = BigButtonBP(
+      tr("restore dongle id"), "", "icons_mici/settings/device/reboot.png", icon_size=80,
+    )
+    self.restore_dongle_btn.set_click_callback(self._restore_dongle_id)
+    self.restore_dongle_btn.set_enabled(self._has_recoverable_dongle_id)
 
     # Primary lateral control selector lives above the lat sub-panel
     self.primary_lateral_control = BigMultiParamToggleBP(
@@ -75,6 +81,12 @@ class BluePilotLayoutMici(NavScroller):
       tr("vehicle"), "", "icons_mici/settings/device_icon.png", icon_size=80,
     )
     vehicle_btn.set_click_callback(lambda: gui_app.push_widget(vehicle_panel))
+
+    audio_panel = AudioLayoutMici()
+    audio_btn = BluePilotBigButton(
+      tr("audio"), "", "icons_mici/microphone.png", icon_size=80,
+    )
+    audio_btn.set_click_callback(lambda: gui_app.push_widget(audio_panel))
 
     visuals_panel = VisualsLayoutMici()
     visuals_btn = BluePilotBigButton(
@@ -99,6 +111,7 @@ class BluePilotLayoutMici(NavScroller):
       self.show_web_routes_qr,
       self.preferred_network_btn,
       vehicle_btn,
+      audio_btn,
       visuals_btn,
       self.primary_lateral_control,
       lat_btn,
@@ -106,6 +119,7 @@ class BluePilotLayoutMici(NavScroller):
       self.ui_debug_log,
       self.clear_model_cache,
       self.connect_backend_btn,
+      self.restore_dongle_btn,
     ])
 
     self._refresh_toggles = (
@@ -123,6 +137,7 @@ class BluePilotLayoutMici(NavScroller):
     self._wifi_manager.set_active(True)
     self.preferred_network_btn.set_value(self._get_preferred_network_display())
     self.connect_backend_btn.set_value(self._get_connect_backend_display())
+    self.restore_dongle_btn.set_value(self._get_recoverable_dongle_id_preview())
 
   def hide_event(self):
     super().hide_event()
@@ -236,6 +251,53 @@ class BluePilotLayoutMici(NavScroller):
     )
     gui_app.push_widget(panel)
 
+  def _get_recoverable_dongle_id(self) -> str | None:
+    try:
+      from bluepilot.backend_switch import find_recoverable_dongle_id
+      return find_recoverable_dongle_id(self._params)
+    except Exception:
+      return None
+
+  def _has_recoverable_dongle_id(self) -> bool:
+    return self._get_recoverable_dongle_id() is not None
+
+  def _get_recoverable_dongle_id_preview(self) -> str:
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return ""
+    return f"{candidate[:6]}…{candidate[-4:]}" if len(candidate) > 12 else candidate
+
+  def _restore_dongle_id(self):
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return
+
+    def do_restore():
+      try:
+        from bluepilot.backend_switch import restore_cached_dongle_id
+        restore_cached_dongle_id(self._params, candidate)
+      except Exception:
+        cloudlog.exception("bp_dongle_id_recovery_ui failed")
+        return
+      self.restore_dongle_btn.set_value(self._get_recoverable_dongle_id_preview())
+      self.restore_dongle_btn.set_enabled(self._has_recoverable_dongle_id)
+      icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+      dialog = BigConfirmationDialog(
+        tr("dongle id restored. reboot to apply?"),
+        icon,
+        confirm_callback=lambda: self._params.put_bool("DoReboot", True, block=False),
+      )
+      gui_app.push_widget(dialog)
+
+    preview = self._get_recoverable_dongle_id_preview()
+    icon = gui_app.texture("icons_mici/settings/device/reboot.png", 64, 64)
+    dialog = BigConfirmationDialog(
+      tr("restore cached dongle id {preview}?").format(preview=preview),
+      icon,
+      confirm_callback=do_restore,
+    )
+    gui_app.push_widget(dialog)
+
   def _show_qr_dialog(self):
     if not self._params.get_bool("EnableWebRoutesServer"):
       return
@@ -258,4 +320,6 @@ class BluePilotLayoutMici(NavScroller):
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
     self.connect_backend_btn.set_value(self._get_connect_backend_display())
+    self.restore_dongle_btn.set_value(self._get_recoverable_dongle_id_preview())
+    self.restore_dongle_btn.set_enabled(self._has_recoverable_dongle_id)
     self._update_buttons()

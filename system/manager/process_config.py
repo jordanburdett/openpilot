@@ -4,6 +4,7 @@ import platform
 
 from cereal import car, custom
 from openpilot.common.params import Params
+from openpilot.common.bluepilot import is_bluepilot
 from openpilot.system.hardware import PC, TICI
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.system.hardware.hw import Paths
@@ -126,7 +127,9 @@ procs = [
 
   PythonProcess("sensord", "system.sensord.sensord", only_onroad, enabled=not PC),
   PythonProcess("ui", "selfdrive.ui.ui", always_run, restart_if_crash=True),
-  PythonProcess("soundd", "selfdrive.ui.soundd", driverview),
+  # BluePilot: use a fork-local subclass for optional custom sounds; upstream soundd remains unchanged.
+  PythonProcess("soundd", "selfdrive.ui.bp.soundd_bp" if is_bluepilot() else "selfdrive.ui.soundd", driverview),
+  # End BluePilot
   PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),
@@ -137,7 +140,10 @@ procs = [
   PythonProcess("card", "selfdrive.car.card", only_onroad),
   PythonProcess("deleter", "system.loggerd.deleter", always_run),
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", driverview, enabled=(WEBCAM or not PC)),
-  PythonProcess("qcomgpsd", "system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI),
+  # BluePilot: restart_if_crash -- a diag-port serial fault (see qcomgpsd.py's reconnect
+  # handling) is now recovered in-process, but this is a backstop for anything else that
+  # still takes the process down; without it a crash meant no GPS for the rest of the drive.
+  PythonProcess("qcomgpsd", "system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI, restart_if_crash=True),
   PythonProcess("pandad", "selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),
@@ -185,7 +191,6 @@ procs += [
 ]
 
 # BluePilot: portal and route preprocessor processes
-from openpilot.common.bluepilot import is_bluepilot
 if is_bluepilot():
   def _bp_portal_enabled(started, params, CP):
     return params.get_bool("EnableWebRoutesServer")

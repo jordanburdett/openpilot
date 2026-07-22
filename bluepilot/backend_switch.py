@@ -22,9 +22,25 @@ Dongle ID handling (register() calls reconcile_backend on every manager start):
 
 Each real backend's ID is cached the first time it is seen, so after one registration
 per backend, switching comma <-> Konik is a pure param swap on reboot.
+
+First-run migration (devices upgrading from a build that predates BPActiveBackend):
+there's no way to tell which backend an inherited DongleId belongs to just from its
+format (Konik IDs are the same 16-char hex shape as comma's). We disambiguate using
+/persist/comma/dongle_id, which only ever holds comma's own factory-assigned ID: if the
+current DongleId matches it, the inherited ID really is comma's and today's normal
+switch-and-cache behavior applies. If it doesn't match (or the persist file doesn't
+exist), the ID's origin is unknown -- e.g. a device registered against Konik entirely
+outside this code (older flash.konik.ai builds, before BPConnectBackend/backend_switch.py
+existed). In that case we do NOT run the destructive stash-then-clear branch: we assume
+the existing ID already belongs to the currently selected target and cache it there
+untouched. Getting this wrong by guessing "comma" is what silently destroyed a working,
+already-registered Konik DongleId on a device that predates this file (see bp_dongle
+field report, 2026-07).
 """
 
+import os
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.hardware.hw import Paths
 
 UNREGISTERED_DONGLE_ID = "UnregisteredDevice"
 
@@ -89,6 +105,20 @@ def _maybe_migrate_legacy_konik(params) -> None:
     pass
 
 
+def _read_persist_comma_dongle_id() -> str | None:
+  """Comma's own factory-assigned ID, present on devices built since 2/28/24. Only ever
+  holds a comma dongle ID, so it's the one reliable way to confirm an inherited DongleId
+  actually came from comma rather than an out-of-band Konik (or other) registration."""
+  try:
+    path = Paths.persist_root() + "/comma/dongle_id"
+    if not os.path.isfile(path):
+      return None
+    with open(path) as f:
+      return f.read().strip() or None
+  except Exception:
+    return None
+
+
 def get_connect_backend(params) -> str:
   """Return the selected backend name: comma, konik, or offline."""
   _maybe_migrate_legacy_konik(params)
@@ -112,14 +142,29 @@ def reconcile_backend(params) -> str:
   """
   try:
     target = get_connect_backend(params)
-    active = params.get("BPActiveBackend") or BACKEND_COMMA
+    active_raw = params.get("BPActiveBackend")
     dongle_id = params.get("DongleId")
     registered = dongle_id is not None and dongle_id != UNREGISTERED_DONGLE_ID
+    persist_comma_id = None
+    first_run = active_raw is None
+
+    if not first_run:
+      active = active_raw or BACKEND_COMMA
+    else:
+      # True first run (upgrading from a build predating BPActiveBackend): don't guess
+      # "comma" for an inherited DongleId of unknown origin -- see module docstring.
+      persist_comma_id = _read_persist_comma_dongle_id()
+      # Known-good comma ID: today's normal switch-and-cache behavior below applies.
+      # Otherwise unknown origin -- trust it belongs to the already-selected target rather
+      # than guessing "comma" and destroying it. The target==active cache-refresh just
+      # below then adopts it into the correct cache slot.
+      active = BACKEND_COMMA if (registered and dongle_id == persist_comma_id) else target
 
     # BluePilot: diagnostic -- runs on every boot regardless of branch below, so field logs
     # always show what this function saw and decided, even on the common comma/comma no-op path.
     cloudlog.event("bp_backend_reconcile", target=target, active=active, registered=registered,
-                   dongle_id=dongle_id)
+                   dongle_id=dongle_id, first_run=first_run, persist_comma_id=persist_comma_id,
+                   cache_comma=params.get(CACHE_PARAM[BACKEND_COMMA]), cache_konik=params.get(CACHE_PARAM[BACKEND_KONIK]))
 
     if target == active:
       # Keep the cache fresh for real backends after a successful registration.
@@ -152,3 +197,42 @@ def reconcile_backend(params) -> str:
     # (e.g. params not yet defined in a dev environment).
     cloudlog.exception("bp_backend_switch failed, using comma connect behavior")
     return BACKEND_COMMA
+
+
+def find_recoverable_dongle_id(params) -> str | None:
+  """User-facing recovery helper (settings menu): a cached dongle ID worth offering to
+  restore, or None if there's nothing to offer.
+
+  Only relevant when DongleId is currently unregistered. Checks the current target
+  backend's own cache slot first (the normal case), then the other real backend's slot
+  -- covering the reconcile_backend() migration bug above, which could misfile a real ID
+  into the wrong slot and wipe DongleId. Returns whichever real (non-empty, non-
+  unregistered) cached ID is found first; does not attempt to guess between multiple
+  candidates since this is a manual, user-confirmed action.
+  """
+  dongle_id = params.get("DongleId")
+  if dongle_id is not None and dongle_id != UNREGISTERED_DONGLE_ID:
+    return None  # already registered, nothing to restore
+
+  target = get_connect_backend(params)
+  ordered_backends = [target] + [b for b in CACHE_PARAM if b != target]
+  for backend in ordered_backends:
+    cache_param = CACHE_PARAM.get(backend)
+    if cache_param is None:
+      continue
+    cached = params.get(cache_param)
+    if cached and cached != UNREGISTERED_DONGLE_ID:
+      return cached
+  return None
+
+
+def restore_cached_dongle_id(params, dongle_id: str) -> None:
+  """Adopt `dongle_id` (from find_recoverable_dongle_id) as the current DongleId, cache it
+  under the current target backend, and mark that backend active. Caller (settings UI)
+  is responsible for confirming with the user first and rebooting afterward."""
+  target = get_connect_backend(params)
+  params.put("DongleId", dongle_id, block=True)
+  if target in CACHE_PARAM:
+    params.put(CACHE_PARAM[target], dongle_id)
+  params.put("BPActiveBackend", target)
+  cloudlog.event("bp_dongle_id_recovered", backend=target, dongle_id=dongle_id)

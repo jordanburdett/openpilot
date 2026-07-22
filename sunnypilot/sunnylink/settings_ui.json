@@ -2118,6 +2118,69 @@
           "unit": "V"
         },
         {
+          "key": "FordPrefSteerAngleCurvature",
+          "widget": "toggle",
+          "needs_onroad_cycle": true,
+          "title": "[Vehicle] Use Pinion Yaw Sensor",
+          "description": "Measures how the car is turning from the steering pinion angle sensor instead of the RCM yaw sensor, in both the control software and the panda safety firmware. Use this if your Ford has a faulty yaw sensor: frequent \"Turn Exceeds Steering Limit\" warnings and weak curve tracking with healthy steering, often alongside \"Service AdvanceTrac\" messages. Run tools/ford_yaw_health_check.py on a few drives to check. Takes effect the next time the car starts. Not available on the Edge (its pinion sensor only reports a relative angle).",
+          "enablement": [
+            {
+              "type": "offroad_only"
+            },
+            {
+              "type": "not",
+              "condition": {
+                "type": "capability",
+                "field": "platform",
+                "equals": "FORD_EDGE_MK2"
+              }
+            }
+          ]
+        },
+        {
+          "key": "BPUseCustomSounds",
+          "widget": "toggle",
+          "needs_onroad_cycle": true,
+          "title": "[Audio] Use Custom Engage/Disengage Sounds",
+          "description": "Replace the engage and disengage sounds with the selected sound pack. For these sound changes to take effect, you will need to reboot your device.",
+          "enablement": [
+            {
+              "type": "offroad_only"
+            }
+          ]
+        },
+        {
+          "key": "BPCustSoundsSelection",
+          "widget": "multiple_button",
+          "needs_onroad_cycle": true,
+          "title": "[Audio] Engage/Disengage Sound",
+          "description": "Choose the sound pack played when openpilot engages or disengages. For these sound changes to take effect, you will need to reboot your device.",
+          "options": [
+            {
+              "value": 0,
+              "label": "Comma 4"
+            },
+            {
+              "value": 1,
+              "label": "Comma 3x"
+            },
+            {
+              "value": 2,
+              "label": "Tesla"
+            }
+          ],
+          "enablement": [
+            {
+              "type": "offroad_only"
+            },
+            {
+              "type": "param",
+              "key": "BPUseCustomSounds",
+              "equals": true
+            }
+          ]
+        },
+        {
           "key": "BPHideOnroadBorder",
           "widget": "toggle",
           "title": "[Visuals] Hide Onroad Border",

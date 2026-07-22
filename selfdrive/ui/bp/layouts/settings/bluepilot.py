@@ -24,6 +24,7 @@ from openpilot.selfdrive.ui.bp.lib.dm_icon_style import (
   ensure_dm_icon_style_initialized,
   get_dm_icon_style,
 )
+from openpilot.selfdrive.ui.bp.lib.custom_sound import get_custom_sound_selection
 from opendbc.sunnypilot.car.ford.lateral_curv_ext import PrimaryLateralControl
 from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import GaugeStyle
 
@@ -48,6 +49,14 @@ class BluePilotLayout(Widget):
     except UnknownKeyName:
       return default
 
+  @staticmethod
+  def _pinion_yaw_sensor_supported() -> bool:
+    """FORD_EDGE_MK2's pinion sensor only reports a relative angle (see
+    FORD_PINION_GEOMETRY_INDEX in opendbc/sunnypilot/car/ford/values_ext.py) -- the
+    safety/control layers already no-op the toggle there, so grey it out here too rather
+    than leaving a live-looking control that silently does nothing."""
+    return ui_state.CP is None or ui_state.CP.carFingerprint != "FORD_EDGE_MK2"
+
   def __init__(self):
     super().__init__()
     self._params = Params()
@@ -68,6 +77,7 @@ class BluePilotLayout(Widget):
     # Toggle refresh list
     self._refresh_toggles = (
       ("send_hands_free_cluster_msg", self._show_hands_free_ui),
+      ("FordPrefSteerAngleCurvature", self._steer_angle_curvature),
       ("BPDisableLaneLineStatusColor", self._disable_lane_line_status_color),
       ("BPHideCameraView", self._hide_camera_view),
       ("BPRadRacerTheme", self._rad_racer_theme),
@@ -77,6 +87,7 @@ class BluePilotLayout(Widget):
       ("BPHideOnroadBorder", self._hide_onroad_border),
       ("BPShowConfidenceBall", self._show_confidence_ball),
       ("BPAnimateSteeringWheel", self._animate_steering_wheel),
+      ("BPUseCustomSounds", self._use_custom_sounds),
       ("FordPrefShowRadarLeadOverlay", self._show_ford_radar_overlay),
       ("FordPrefHybridBatteryStatus", self._show_hybrid_battery_status),
       ("FordPrefHybridPowerFlow", self._show_hybrid_power_flow),
@@ -105,6 +116,18 @@ class BluePilotLayout(Widget):
       initial_state=self._safe_get_bool(self._params, "send_hands_free_cluster_msg"),
       callback=lambda state: self._toggle_callback(state, "send_hands_free_cluster_msg"),
       icon="monitoring.png"
+    )
+
+    # Ford steering-angle curvature measurement (bad-yaw-sensor workaround). Init-time:
+    # card reads it once at car init and mirrors it into the panda safety firmware, so a
+    # flip only takes effect after the next restart (safe to toggle any time).
+    self._steer_angle_curvature = toggle_item(
+      lambda: tr("Use Pinion Yaw Sensor"),
+      lambda: tr('Measures how the car is turning from the steering pinion angle sensor instead of a faulty RCM yaw sensor (symptoms: "Turn Exceeds Steering Limit" warnings, weak curve tracking, "Service AdvanceTrac"). Check with tools/ford_yaw_health_check.py. Applies the next time the car starts. Not available on the Edge.'),
+      initial_state=self._safe_get_bool(self._params, "FordPrefSteerAngleCurvature"),
+      callback=lambda state: self._toggle_callback(state, "FordPrefSteerAngleCurvature"),
+      icon="monitoring.png",
+      enabled=self._pinion_yaw_sensor_supported,
     )
 
     # Lane line status color toggle (issue #109: option to keep lane lines grey instead of green when engaged)
@@ -208,6 +231,25 @@ class BluePilotLayout(Widget):
       callback=self._set_dm_icon_style,
       selected_index=dm_style_idx,
       icon="monitoring.png"
+    )
+
+    self._use_custom_sounds = toggle_item(
+      lambda: tr("Use Custom Engage/Disengage Sounds"),
+      lambda: tr("Replace the engage and disengage sounds with the selected sound pack."),
+      initial_state=self._safe_get_bool(self._params, "BPUseCustomSounds"),
+      callback=self._on_custom_sounds_toggled,
+      icon="microphone.png"
+    )
+
+    custom_sound_idx = int(get_custom_sound_selection(self._params))
+    self._custom_sound_selection_btn = multiple_button_item(
+      lambda: tr("Engage/Disengage Sound"),
+      lambda: tr("Choose the sound pack played when openpilot engages or disengages."),
+      buttons=[lambda: tr("Comma 4"), lambda: tr("Comma 3x"), lambda: tr("Tesla")],
+      button_width=225,
+      callback=self._set_custom_sound_selection,
+      selected_index=custom_sound_idx,
+      icon="microphone.png"
     )
 
     # Ford radar lead overlay toggle
@@ -449,6 +491,17 @@ class BluePilotLayout(Widget):
       callback=self._select_connect_backend
     )
 
+    # Restore cached dongle ID — recovery for a device left unregistered by a backend
+    # switch (e.g. a pre-existing Konik registration from before this menu existed).
+    self._restore_dongle_action = ButtonAction(lambda: tr("RESTORE"), enabled=self._has_recoverable_dongle_id)
+    self._restore_dongle_action.set_value(lambda: self._get_recoverable_dongle_id_preview())
+    self._restore_dongle_btn = ListItem(
+      lambda: tr("Restore Cached Dongle ID"),
+      description=lambda: tr("If switching backends left this device unregistered, restore a previously registered ID found cached here. Only enabled when one is found."),
+      action_item=self._restore_dongle_action,
+      callback=self._restore_dongle_id
+    )
+
     # Lane line feedback trim — toggle + tuning floats
     # Primary lateral actuator: curvature-primary (historical) vs angle-primary (experimental)
     primary_lat_idx = PrimaryLateralControl(self._params.get("FordPrefLateralControl", return_default=True) or 0)
@@ -605,11 +658,17 @@ class BluePilotLayout(Widget):
         self._clear_model_cache_btn,
         self._ui_debug_log,
         self._connect_backend_btn,
+        self._restore_dongle_btn,
         self._reset_menu_btn,
       ]) +
       _section(tr("Vehicle"), [
         self._show_hands_free_ui,
+        self._steer_angle_curvature,
         self._vbatt_pause_charging,
+      ]) +
+      _section(tr("Audio"), [
+        self._use_custom_sounds,
+        self._custom_sound_selection_btn,
       ]) +
       _section(tr("Visuals"), [
         self._hide_onroad_border,
@@ -703,6 +762,44 @@ class BluePilotLayout(Widget):
     if result == DialogResult.CONFIRM:
       self._params.put_bool("DoReboot", True)
 
+  def _get_recoverable_dongle_id(self) -> str | None:
+    try:
+      from bluepilot.backend_switch import find_recoverable_dongle_id
+      return find_recoverable_dongle_id(self._params)
+    except Exception:
+      return None
+
+  def _has_recoverable_dongle_id(self) -> bool:
+    return self._get_recoverable_dongle_id() is not None
+
+  def _get_recoverable_dongle_id_preview(self) -> str:
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return ""
+    return f"{candidate[:6]}…{candidate[-4:]}" if len(candidate) > 12 else candidate
+
+  def _restore_dongle_id(self):
+    candidate = self._get_recoverable_dongle_id()
+    if candidate is None:
+      return
+
+    def handle_confirm(result: DialogResult):
+      if result == DialogResult.CONFIRM:
+        try:
+          from bluepilot.backend_switch import restore_cached_dongle_id
+          restore_cached_dongle_id(self._params, candidate)
+        except Exception:
+          cloudlog.exception("bp_dongle_id_recovery_ui failed")
+          return
+        dialog = ConfirmDialog(tr("Dongle ID restored. Reboot now to apply?"),
+                               tr("Reboot"), callback=self._handle_connect_backend_reboot)
+        gui_app.push_widget(dialog)
+
+    preview = self._get_recoverable_dongle_id_preview()
+    dialog = ConfirmDialog(tr("Restore cached dongle ID {preview}? This overwrites the current (unregistered) device ID.").format(preview=preview),
+                           tr("Restore"), callback=handle_confirm)
+    gui_app.push_widget(dialog)
+
   def _on_blinker_pause_changed(self, state: bool) -> None:
     self._toggle_callback(state, "BlinkerPauseLaneChange")
     self._blinker_min_speed.action_item.set_enabled(state)
@@ -721,6 +818,14 @@ class BluePilotLayout(Widget):
     self._wheel_icon_style_btn.action_item.set_selected_button(wheel_style_idx)
     dm_style_idx = int(get_dm_icon_style(ui_state.params, DMIconStyle.COMMA_3X))
     self._dm_icon_style_btn.action_item.set_selected_button(dm_style_idx)
+    custom_sound_idx = int(get_custom_sound_selection(ui_state.params))
+    self._custom_sound_selection_btn.action_item.set_selected_button(custom_sound_idx)
+    custom_sounds_enabled = fresh.get(
+      "BPUseCustomSounds", self._safe_get_bool(ui_state.params, "BPUseCustomSounds")
+    )
+    self._custom_sound_selection_btn.action_item.set_enabled(
+      custom_sounds_enabled
+    )
 
     # Update button enabled states
     self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
@@ -906,6 +1011,31 @@ class BluePilotLayout(Widget):
   def _set_dm_icon_style(self, button_index: int):
     """Handle DM icon style: 0 = comma 4, 1 = comma 3X."""
     self._params.put("BPDMStylingChoice", button_index)
+
+  def _set_custom_sound_selection(self, button_index: int):
+    """Handle engagement sound selection: 0 = Comma 4, 1 = Comma 3x, 2 = Tesla."""
+    previous = int(get_custom_sound_selection(self._params))
+    if button_index == previous:
+      return
+    self._params.put("BPCustSoundsSelection", button_index)
+    self._prompt_sound_reboot()
+
+  def _on_custom_sounds_toggled(self, state: bool) -> None:
+    self._toggle_callback(state, "BPUseCustomSounds")
+    self._custom_sound_selection_btn.action_item.set_enabled(state)
+
+  def _prompt_sound_reboot(self) -> None:
+    dialog = ConfirmDialog(
+      tr("For these sound changes to take effect, you will need to reboot your device.\n\nTHIS REBOOT WILL DISENGAGE OPENPILOT."),
+      tr("Reboot now"),
+      cancel_text=tr("Reboot later"),
+      callback=self._handle_sound_reboot,
+    )
+    gui_app.push_widget(dialog)
+
+  def _handle_sound_reboot(self, result):
+    if result == DialogResult.CONFIRM:
+      self._params.put_bool("DoReboot", True)
 
   def _set_hybrid_gauge_size(self, button_index: int):
     """Handle hybrid gauge size button selection. Buttons are 0/1/2, param stores 1/2/3."""
