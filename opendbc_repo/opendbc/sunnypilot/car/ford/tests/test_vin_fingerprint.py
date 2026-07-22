@@ -20,6 +20,18 @@ CASES = [
   ('3FMTK3SU0MMXXXXXX', CAR.FORD_MUSTANG_MACH_E_MK1),   # Mach-E 2021
   ('1FTVW1EL4NWXXXXXX', CAR.FORD_F_150_LIGHTNING_MK1),  # position 8 = L -> electric
   ('1FTFW1E85MFXXXXXX', CAR.FORD_F_150_MK14),           # same body code, position 8 = E -> ICE
+
+  # Constructed from NHTSA vPIC decodes (real VIN prefixes, filler serials) for the platforms
+  # that have no VIN in comma's segment database
+  ('2FMPK4J97NBXXXXXX', CAR.FORD_EDGE_MK2),             # Edge 2022
+  ('1FMCU0J91MUXXXXXX', CAR.FORD_ESCAPE_MK4),           # Escape 2021 4x2
+  ('1FMCU9J97PUXXXXXX', CAR.FORD_ESCAPE_MK4_5),         # Escape 2023 -- same code as MK4, later year
+  ('1FMJU1JT8NEXXXXXX', CAR.FORD_EXPEDITION_MK4),       # Expedition 2022
+  ('1FMJK1JT4PEXXXXXX', CAR.FORD_EXPEDITION_MK4),       # Expedition MAX 2023
+  ('1FTER4LH8RLXXXXXX', CAR.FORD_RANGER_MK2),           # Ranger 2024
+
+  ('1FTER4FH8KLXXXXXX', None),                          # Ranger 2019, same code, unsupported year
+  ('1FMJU1JT8LEXXXXXX', None),                          # Expedition 2020, unsupported year
   ('WF0NXXGCHNJXXXXXX', None),                          # Focus, European VIN scheme
   ('00000000000000000', None),                          # VIN_UNKNOWN
   ('1FM5K8GC7LG', None),                                # malformed

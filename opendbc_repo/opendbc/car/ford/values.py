@@ -141,6 +141,10 @@ class FordF150LightningPlatform(FordCANFDPlatformConfig):
 # BluePilot: model year letters used in VIN position 10 (I, O, Q, U, Z are skipped by the standard)
 MY_2020, MY_2021, MY_2022, MY_2023, MY_2024, MY_2025 = 'L', 'M', 'N', 'P', 'R', 'S'
 
+# VIN tables below come from real VINs in comma's public car segments database; the platforms with
+# no observed VIN (Edge, Escape MK4.5, Expedition, Ranger) were filled in from NHTSA vPIC decodes
+# (https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/<partial vin>?format=json&modelyear=<year>),
+# which is manufacturer-submitted data.
 # F-150 and F-150 Lightning share WMI and body codes; position 8 is the powertrain, L/V = electric.
 # Source: https://github.com/commaai/openpilot/issues/31052 (see tools/car_porting/examples/ford_vin_fingerprint.ipynb)
 F150_VDS_CODES = {'F1C', 'F1E', 'W1C', 'W1E', 'X1C', 'X1E', 'W1R', 'W1P', 'W1S', 'W1T'}
@@ -158,6 +162,7 @@ class CAR(Platforms):
     [FordCarDocs("Ford Edge 2022")],
     CarSpecs(mass=1933, steerRatio=15.3, wheelbase=2.824),
     flags=FordFlags.ALT_STEER_ANGLE,
+    wmis={'2FM'}, vds_codes={'PK4'}, years={MY_2022},
   )
   FORD_ESCAPE_MK4 = FordPlatformConfig(
     [
@@ -165,7 +170,7 @@ class CAR(Platforms):
       FordCarDocs("Ford Kuga 2020-23", "Adaptive Cruise Control with Lane Centering", hybrid=True, plug_in_hybrid=True),
     ],
     CarSpecs(mass=1750, wheelbase=2.71, steerRatio=16.7),
-    wmis={'1FM'}, vds_codes={'CU9'}, years={MY_2020, MY_2021, MY_2022},
+    wmis={'1FM'}, vds_codes={'CU0', 'CU9'}, years={MY_2020, MY_2021, MY_2022},  # CU0 = 4x2, CU9 = 4WD
   )
   FORD_ESCAPE_MK4_5 = FordCANFDPlatformConfig(
     [
@@ -174,6 +179,8 @@ class CAR(Platforms):
       FordCarDocs("Ford Kuga Plug-in Hybrid 2024", "All"),
     ],
     CarSpecs(mass=1750, wheelbase=2.71, steerRatio=16.7),
+    # Same body codes as the MK4; the model year letter is what separates the two platforms
+    wmis={'1FM'}, vds_codes={'CU0', 'CU9'}, years={MY_2023, MY_2024},
   )
   FORD_EXPLORER_MK6 = FordPlatformConfig(
     [
@@ -188,6 +195,8 @@ class CAR(Platforms):
   FORD_EXPEDITION_MK4 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford Expedition 2022-24", "Co-Pilot360 Assist 2.0", hybrid=False)],
     CarSpecs(mass=2000, wheelbase=3.69, steerRatio=17.0),
+    # JU1/JU2 = Expedition, JK1 = Expedition MAX (longer wheelbase, same platform here)
+    wmis={'1FM'}, vds_codes={'JU1', 'JU2', 'JK1'}, years={MY_2022, MY_2023, MY_2024},
   )
   FORD_F_150_MK14 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford F-150 2021-23", "Co-Pilot360 Assist 2.0", hybrid=True)],
@@ -223,6 +232,8 @@ class CAR(Platforms):
   FORD_RANGER_MK2 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford Ranger 2024", "Adaptive Cruise Control with Lane Centering", setup_video="https://www.youtube.com/watch?v=2oJlXCKYOy0")],
     CarSpecs(mass=2000, wheelbase=3.27, steerRatio=17.0),
+    # The 2019-23 Ranger shares this code but is not supported; the model year is what excludes it
+    wmis={'1FT'}, vds_codes={'ER4'}, years={MY_2024},
   )
 
 
