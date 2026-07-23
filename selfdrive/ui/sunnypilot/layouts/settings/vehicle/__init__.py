@@ -20,8 +20,7 @@ class VehicleLayout(Widget):
     self._brand_settings = None
     self._brand_items = []
     self._current_brand = None
-    # BluePilot: subclasses adding the "(by VIN)" marker. Imported here, not at module scope --
-    # the bp module imports .platform_selector, which would re-enter this package mid-init.
+    # local import: bp module imports .platform_selector, re-entering this package mid-init
     from openpilot.selfdrive.ui.bp.widgets.platform_selector_bp import PlatformSelectorBP, LegendWidgetBP
     self._platform_selector = PlatformSelectorBP(self._update_brand_settings)
 

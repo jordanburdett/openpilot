@@ -1,14 +1,4 @@
-"""
-BluePilot: vehicle-screen additions on top of the sunnypilot platform selector.
-
-Kept here rather than patched into selfdrive/ui/sunnypilot/layouts/settings/vehicle/platform_selector.py
-so upstream merges don't clobber them. The only upstream touchpoint is the import line in
-selfdrive/ui/sunnypilot/layouts/settings/vehicle/__init__.py.
-
-Adds a "(by VIN)" marker when the car was identified by decoding its VIN rather than by its
-firmware -- see match_vin_to_car() in opendbc/car/ford/values.py, the last-resort branch of Ford's
-fuzzy matcher.
-"""
+"""BluePilot "(by VIN)" marker, subclassed here so upstream merges can't clobber it."""
 
 import pyray as rl
 
@@ -20,8 +10,7 @@ from openpilot.system.ui.sunnypilot.lib.styles import style
 
 
 def fingerprinted_by_vin() -> bool:
-  """True when the live CarParams came from a VIN decode: firmware matching gave up (fuzzy) and
-  the VIN independently decodes to the same platform."""
+  """Firmware matching gave up (fuzzy) and the VIN decodes to the same platform."""
   CP = ui_state.CP
   if CP is None or not CP.fuzzyFingerprint:
     return False

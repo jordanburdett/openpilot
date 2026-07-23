@@ -174,7 +174,7 @@ FW_VERSIONS = {
       b'RL38-14D003-AA\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
     ],
   },
-  # ponytail: TEMPORARILY DISABLED for VIN-matching test. Uncomment this block to restore Mach-E fingerprints.
+  # disabled to test VIN matching -- uncomment to restore
   # CAR.FORD_MUSTANG_MACH_E_MK1: {
   #   (Ecu.eps, 0x730, None): [
   #     b'LJ9C-14D003-AM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
