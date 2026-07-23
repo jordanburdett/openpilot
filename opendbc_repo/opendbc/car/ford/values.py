@@ -92,13 +92,9 @@ class FordCarDocs(CarDocs):
 
 @dataclass
 class FordPlatformConfig(PlatformConfig):
-  # BluePilot: VIN fallback fingerprinting data (see match_vin_to_car). North American Ford VINs
-  # encode the model line/series/body within positions 4-7 and the model year as a single letter
-  # in position 10. A platform with any of these sets empty is never matched by VIN -- that is the
-  # safe default, so only fill them in from a real carVin observed on that platform.
+  # BluePilot: VIN fallback data; leave empty to keep a platform out of VIN matching
   wmis: set[str] = field(default_factory=set)        # VIN positions 1-3
-  # 3-character line/series/body code. Ford does not put it at a consistent offset (Explorer's is
-  # at positions 4-6, the F-150's at 5-7), so it is matched anywhere within positions 4-7.
+  # matched anywhere in positions 4-7: Ford's offset varies by model
   vds_codes: set[str] = field(default_factory=set)
   years: set[str] = field(default_factory=set)       # VIN position 10
 
@@ -138,15 +134,11 @@ class FordF150LightningPlatform(FordCANFDPlatformConfig):
     self.car_docs = []
 
 
-# BluePilot: model year letters used in VIN position 10 (I, O, Q, U, Z are skipped by the standard)
+# VIN position 10; I, O, Q, U, Z are skipped by the standard
 MY_2020, MY_2021, MY_2022, MY_2023, MY_2024, MY_2025 = 'L', 'M', 'N', 'P', 'R', 'S'
 
-# VIN tables below come from real VINs in comma's public car segments database; the platforms with
-# no observed VIN (Edge, Escape MK4.5, Expedition, Ranger) were filled in from NHTSA vPIC decodes
-# (https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/<partial vin>?format=json&modelyear=<year>),
-# which is manufacturer-submitted data.
-# F-150 and F-150 Lightning share WMI and body codes; position 8 is the powertrain, L/V = electric.
-# Source: https://github.com/commaai/openpilot/issues/31052 (see tools/car_porting/examples/ford_vin_fingerprint.ipynb)
+# VIN tables sourced from https://github.com/commaai/openpilot/issues/31052 and NHTSA vPIC
+# F-150 and Lightning share WMI and body codes; position 8 is the powertrain, L/V = electric
 F150_VDS_CODES = {'F1C', 'F1E', 'W1C', 'W1E', 'X1C', 'X1E', 'W1R', 'W1P', 'W1S', 'W1T'}
 F150_ELECTRIC_CODES = {'L', 'V'}
 MACH_E_VDS_CODES = {'K1R', 'K1S', 'K2S', 'K3R', 'K3S', 'K4S'}
@@ -179,7 +171,7 @@ class CAR(Platforms):
       FordCarDocs("Ford Kuga Plug-in Hybrid 2024", "All"),
     ],
     CarSpecs(mass=1750, wheelbase=2.71, steerRatio=16.7),
-    # Same body codes as the MK4; the model year letter is what separates the two platforms
+    # same body codes as the MK4; the model year letter separates them
     wmis={'1FM'}, vds_codes={'CU0', 'CU9'}, years={MY_2023, MY_2024},
   )
   FORD_EXPLORER_MK6 = FordPlatformConfig(
@@ -188,14 +180,13 @@ class CAR(Platforms):
       FordCarDocs("Lincoln Aviator 2020-24", "Co-Pilot360 Plus", plug_in_hybrid=True),  # Hybrid: Grand Touring only
     ],
     CarSpecs(mass=2050, wheelbase=3.025, steerRatio=16.8),
-    # Ford Explorer (1FM 5K7/5K8) and Lincoln Aviator (5LM 5J7) share this platform
     wmis={'1FM', '5LM'}, vds_codes={'5K7', '5K8', '5J7'},
     years={MY_2020, MY_2021, MY_2022, MY_2023, MY_2024},
   )
   FORD_EXPEDITION_MK4 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford Expedition 2022-24", "Co-Pilot360 Assist 2.0", hybrid=False)],
     CarSpecs(mass=2000, wheelbase=3.69, steerRatio=17.0),
-    # JU1/JU2 = Expedition, JK1 = Expedition MAX (longer wheelbase, same platform here)
+    # JK1 is the MAX; same platform here
     wmis={'1FM'}, vds_codes={'JU1', 'JU2', 'JK1'}, years={MY_2022, MY_2023, MY_2024},
   )
   FORD_F_150_MK14 = FordCANFDPlatformConfig(
@@ -232,7 +223,7 @@ class CAR(Platforms):
   FORD_RANGER_MK2 = FordCANFDPlatformConfig(
     [FordCarDocs("Ford Ranger 2024", "Adaptive Cruise Control with Lane Centering", setup_video="https://www.youtube.com/watch?v=2oJlXCKYOy0")],
     CarSpecs(mass=2000, wheelbase=3.27, steerRatio=17.0),
-    # The 2019-23 Ranger shares this code but is not supported; the model year is what excludes it
+    # the year set excludes the unsupported 2019-23 Ranger, which shares this code
     wmis={'1FT'}, vds_codes={'ER4'}, years={MY_2024},
   )
 
@@ -301,10 +292,8 @@ def match_fw_to_car_fuzzy(live_fw_versions: LiveFwVersions, vin: str, offline_fw
     if valid_expected_ecus.issubset(valid_found_ecus):
       candidates.add(candidate)
 
-  # BluePilot: last resort -- the firmware told us nothing (unseen part numbers, or the ECUs
-  # didn't answer). Fall back to decoding the VIN. Only ever reached after exact matching and
-  # the platform-hint pass above have both come up empty, and the result is still flagged
-  # fuzzy (CP.fuzzyFingerprint), because a VIN identifies the vehicle, not its ADAS hardware.
+  # BluePilot: last resort when the firmware told us nothing; stays flagged fuzzy because a VIN
+  # identifies the vehicle, not its ADAS hardware
   if not candidates:
     candidates = match_vin_to_car(vin)
 
@@ -312,10 +301,7 @@ def match_fw_to_car_fuzzy(live_fw_versions: LiveFwVersions, vin: str, offline_fw
 
 
 def match_vin_to_car(vin: str) -> set[str]:
-  """BluePilot: decode a North American Ford VIN to a platform. Returns every platform whose
-  wmis/vds_codes/years all contain the corresponding VIN fields -- empty when the VIN is
-  unreadable, is a non-NA VIN (Europe does not use this scheme), or belongs to a platform with
-  no VIN data filled in."""
+  """BluePilot: decode a North American Ford VIN to a platform; empty for non-NA or unknown VINs."""
   if not is_valid_vin(vin):
     return set()
 
@@ -327,7 +313,7 @@ def match_vin_to_car(vin: str) -> set[str]:
                 model_year in platform.config.years and
                 any(code in vds for code in platform.config.vds_codes)}
 
-  # F-150 and F-150 Lightning are indistinguishable by WMI/body code; position 8 is the powertrain
+  # F-150 and Lightning are indistinguishable by WMI/body code; position 8 is the powertrain
   if {CAR.FORD_F_150_MK14, CAR.FORD_F_150_LIGHTNING_MK1} & candidates:
     electric = vin[7] in F150_ELECTRIC_CODES
     candidates.discard(CAR.FORD_F_150_MK14 if electric else CAR.FORD_F_150_LIGHTNING_MK1)
