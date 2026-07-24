@@ -2569,8 +2569,8 @@
         {
           "key": "FordHighSpeedDampening_ang",
           "widget": "option",
-          "title": "[Lateral Tuning] High Speed Dampening (Angle)",
-          "description": "High speed dampening is for straightaways at highway speed.  For oversteer reduce it, For understeer increase it. Default: 1.0",
+          "title": "[Lateral Tuning] High Speed Low Curve Adjustment Factor (Angle)",
+          "description": "Tune adjustment factor for low curve straightaways (highways) at high speeds. If oversteering, reduce. If understeering, increase",
           "min": 0.75,
           "max": 1.25,
           "step": 0.01,

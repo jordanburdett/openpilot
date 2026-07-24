@@ -533,8 +533,8 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
     self._high_speed_dampening = float_control_item(
-      lambda: tr("High Speed Dampening"),
-      lambda: tr("High speed dampening is for straightaways at highway speed.  For oversteer reduce it, For understeer increase it. Default: 1.0"),
+      lambda: tr("High Speed Low Curve Adjustment Factor"),
+      lambda: tr("Tune adjustment factor for low curve straightaways (highways) at high speeds. If oversteering, reduce. If understeering, increase"),
       param="FordHighSpeedDampening_ang",
       min_value=0.75,
       max_value=1.25,
