@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from openpilot.cereal import car
+from opendbc.car.structs import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.selfdrive.selfdrived.events import EVENTS, EventName
@@ -143,7 +143,7 @@ def test_soundd_bp_replaces_tesla_sound_pack(monkeypatch, tmp_path):
 
 
 def test_soundd_bp_loads_each_comma_sound_pack(monkeypatch, tmp_path):
-  stock_refuse = _load_mono_sound(os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "refuse.wav"))
+  stock_refuse = _load_mono_sound(os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "refuse.wav"))
   for selection in (CustomSoundSelection.COMMA_4, CustomSoundSelection.COMMA_3X):
     params = _custom_params(tmp_path / selection.name, selection)
     monkeypatch.setattr(quiet_mode, "Params", lambda params=params: params)
@@ -169,5 +169,5 @@ def test_soundd_bp_falls_back_to_stock_on_asset_error(monkeypatch, tmp_path):
     AudibleAlert.refuse: "refuse.wav",
   }
   for alert, filename in stock_files.items():
-    stock_sound = _load_mono_sound(os.path.join(BASEDIR, "selfdrive", "assets", "sounds", filename))
+    stock_sound = _load_mono_sound(os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", filename))
     np.testing.assert_array_equal(daemon.loaded_sounds[alert], stock_sound)

@@ -2142,7 +2142,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     # Parse CarParams if available
                     if param_exists("CarParams"):
                         try:
-                            from openpilot.cereal import car
+                            from opendbc.car.structs import car
                             car_params_bytes = params.get("CarParams")
                             car_params = car.CarParams.from_bytes(car_params_bytes)
 

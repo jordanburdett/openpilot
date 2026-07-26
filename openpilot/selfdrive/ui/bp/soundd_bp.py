@@ -8,7 +8,7 @@ import wave
 
 import numpy as np
 
-from openpilot.cereal import car
+from opendbc.car.structs import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.bp.lib.custom_sound import (
@@ -20,15 +20,15 @@ from openpilot.selfdrive.ui.soundd import MAX_VOLUME, SAMPLE_BUFFER, SAMPLE_RATE
 
 
 AudibleAlert = car.CarControl.HUDControl.AudibleAlert
-CUSTOM_SOUND_DIR = os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "bluepilot")
+CUSTOM_SOUND_DIR = os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "bluepilot")
 SOUND_PACK_FILES = {
   CustomSoundSelection.COMMA_4: {
-    AudibleAlert.engage: os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "engage.wav"),
-    AudibleAlert.disengage: os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "disengage.wav"),
+    AudibleAlert.engage: os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "engage.wav"),
+    AudibleAlert.disengage: os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "disengage.wav"),
   },
   CustomSoundSelection.COMMA_3X: {
-    AudibleAlert.engage: os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "engage_tizi.wav"),
-    AudibleAlert.disengage: os.path.join(BASEDIR, "selfdrive", "assets", "sounds", "disengage_tizi.wav"),
+    AudibleAlert.engage: os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "engage_tizi.wav"),
+    AudibleAlert.disengage: os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "sounds", "disengage_tizi.wav"),
   },
   CustomSoundSelection.TESLA: {
     AudibleAlert.engage: os.path.join(CUSTOM_SOUND_DIR, "tesla_engage.wav"),

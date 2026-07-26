@@ -466,7 +466,7 @@ def extract_fingerprint_from_segment(segment_path):
     """
     # Try method 1: Use runtime messaging module (works on device without pycapnp dependency)
     try:
-        from openpilot.cereal import car
+        from opendbc.car.structs import car
         import openpilot.cereal.messaging as messaging
         from openpilot.common.params import Params
 
