@@ -570,7 +570,7 @@ struct CarStateBP @0xb057204d7deadf3f {
     voltHighLimit @1 :Float32;
     voltLowLimit @2 :Float32;
     voltActual @3 :Float32;
-    ampsActual @4 :Float32;
+    ampsActual @4 :Float32;  # from MtrTracData_1_FD1; Battery_Traction_1 carries no current on Mach-E
     socMinPerc @5 :Float32;
     socMaxPerc @6 :Float32;
     socActual @7 :Float32;
