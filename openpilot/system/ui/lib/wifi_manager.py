@@ -27,7 +27,7 @@ from openpilot.system.ui.lib.networkmanager import (NM, NM_WIRELESS_IFACE, NM_80
                                                     NM_IP4_CONFIG_IFACE, NM_PROPERTIES_IFACE, NMDeviceState, NMDeviceStateReason)
 
 from openpilot.common.bluepilot import is_bluepilot
-from openpilot.system.hardware import PC
+from openpilot.common.hardware import PC
 
 try:
   from openpilot.common.params import Params

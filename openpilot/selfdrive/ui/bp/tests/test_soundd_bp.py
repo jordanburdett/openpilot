@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from cereal import car
+from openpilot.cereal import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.selfdrive.selfdrived.events import EVENTS, EventName

@@ -1,7 +1,7 @@
 import time
 from enum import IntEnum
 import pyray as rl
-from cereal import log, messaging
+from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView

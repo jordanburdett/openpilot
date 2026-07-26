@@ -8,7 +8,7 @@ import wave
 
 import numpy as np
 
-from cereal import car
+from openpilot.cereal import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.bp.lib.custom_sound import (

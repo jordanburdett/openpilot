@@ -1,6 +1,6 @@
 from typing import Optional
 import pyray as rl
-from cereal import log
+from openpilot.cereal import log
 
 from openpilot.selfdrive.ui.onroad.alert_renderer import AlertRenderer, ALERT_PADDING
 from openpilot.system.ui.lib.application import gui_app

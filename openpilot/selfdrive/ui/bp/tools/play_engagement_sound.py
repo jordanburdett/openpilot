@@ -6,7 +6,7 @@ import os
 import socket
 import sys
 
-from cereal import car
+from openpilot.cereal import car
 from openpilot.selfdrive.ui.bp.soundd_bp import (
   SOUND_TEST_CONTROL_ENV,
   SounddBP,

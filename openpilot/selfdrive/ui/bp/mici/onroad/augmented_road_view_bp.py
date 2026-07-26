@@ -1,6 +1,6 @@
 import time
 import pyray as rl
-from cereal import car
+from openpilot.cereal import car
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
 from openpilot.system.ui.lib.application import gui_app
