@@ -410,7 +410,8 @@ class CarStateExt:
           hybrid_battery.voltActual = batt_data1["BattTrac_U_Actl"]
           # BattTrac_I_Actl reads a constant -750 A on the Mach-E (bytes 0-1 of 0x07A are always 0)
           if self.CP.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1:
-            hybrid_battery.ampsActual = cp.vl["MtrTracData_1_FD1"]["MtrTrac2_I_Actl"]
+            # motor current is positive when motoring; UI wants positive = charging, so negate
+            hybrid_battery.ampsActual = -cp.vl["MtrTracData_1_FD1"]["MtrTrac2_I_Actl"]
           else:
             hybrid_battery.ampsActual = batt_data1["BattTrac_I_Actl"]
           hybrid_battery.socMinPerc = batt_data3["BattTracSoc_Pc_MnPrtct"]
