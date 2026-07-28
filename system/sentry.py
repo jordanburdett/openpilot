@@ -23,12 +23,13 @@ CRASHES_DIR = Paths.crash_log_root()
 
 
 class SentryProject(Enum):
-  # BluePilot: report to our own Sentry project (restored after the June 2026 sunnypilot rebaseline
-  # reverted this file, which had been silently sending BluePilot crashes to sunnypilot's Sentry).
-  # sunnypilot upstream DSN kept for reference:
-  # SELFDRIVE = "https://186a6736b7927e5ae9b92c869ba81b6b@o1138119.ingest.us.sentry.io/4508660076052480"
+  # BluePilot: report to our OWN self-hosted GlitchTip (Sentry-API compatible), which we fully control
+  # — replaces the coworker-owned Sentry we could neither see nor configure.
+  # LAN address for now; change to the public https:// Cloudflare-Tunnel URL before fleet rollout.
+  # Prior DSNs for reference:  sunnypilot upstream  = o1138119.ingest.us.sentry.io/4508660076052480
+  #                            BluePilot Sentry(6.0) = o4510926103379968.ingest.us.sentry.io/4510926105739264
   # python project
-  SELFDRIVE = "https://dd96fe788b05e1b9a59fb68bd7604314@o4510926103379968.ingest.us.sentry.io/4510926105739264"
+  SELFDRIVE = "http://06436d643ff64a6eadc42b3691de2198@10.88.1.236:8000/1"
   # native project
   SELFDRIVE_NATIVE = SELFDRIVE
 
