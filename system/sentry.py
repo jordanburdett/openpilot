@@ -1,10 +1,14 @@
 """Install exception handler for process crash."""
+import logging
 import os
 import traceback
 from datetime import datetime
-import sentry_sdk
 from enum import Enum
+from importlib.metadata import PackageNotFoundError, version as pkg_version
+
+import sentry_sdk
 from sentry_sdk.integrations.threading import ThreadingIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from openpilot.common.params import Params
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
@@ -19,8 +23,12 @@ CRASHES_DIR = Paths.crash_log_root()
 
 
 class SentryProject(Enum):
+  # BluePilot: report to our own Sentry project (restored after the June 2026 sunnypilot rebaseline
+  # reverted this file, which had been silently sending BluePilot crashes to sunnypilot's Sentry).
+  # sunnypilot upstream DSN kept for reference:
+  # SELFDRIVE = "https://186a6736b7927e5ae9b92c869ba81b6b@o1138119.ingest.us.sentry.io/4508660076052480"
   # python project
-  SELFDRIVE = "https://186a6736b7927e5ae9b92c869ba81b6b@o1138119.ingest.us.sentry.io/4508660076052480"
+  SELFDRIVE = "https://dd96fe788b05e1b9a59fb68bd7604314@o4510926103379968.ingest.us.sentry.io/4510926105739264"
   # native project
   SELFDRIVE_NATIVE = SELFDRIVE
 
@@ -114,6 +122,27 @@ def get_properties() -> tuple[str, str, str]:
   return dongle_id, git_username, sunnylink_dongle_id
 
 
+# BluePilot: enable_logs exists only on sentry-sdk >= ~2.35; older builds (incl. some AGNOS venvs)
+# raise TypeError on sentry_sdk.init(enable_logs=...). Gate it on the installed version.
+def _sentry_sdk_supports_enable_logs() -> bool:
+  try:
+    v = pkg_version("sentry-sdk")
+  except PackageNotFoundError:
+    return False
+  parts: list[int] = []
+  for segment in v.split(".")[:3]:
+    digits = "".join(ch for ch in segment if ch.isdigit())
+    if not digits:
+      break
+    parts.append(min(int(digits), 9999))
+    if len(parts) == 3:
+      break
+  while len(parts) < 3:
+    parts.append(0)
+  return tuple(parts) >= (2, 35, 0)
+# End BluePilot
+
+
 def init(project: SentryProject) -> bool:
   build_metadata = get_build_metadata()
 
@@ -124,13 +153,26 @@ def init(project: SentryProject) -> bool:
   if project == SentryProject.SELFDRIVE:
     integrations.append(ThreadingIntegration(propagate_hub=True))
 
-  sentry_sdk.init(project.value,
-                  default_integrations=False,
-                  release=get_version(),
-                  integrations=integrations,
-                  traces_sample_rate=1.0,
-                  max_value_length=8192,
-                  environment=env)
+  # BluePilot: maximum coverage. cloudlog is a SwagLogger(logging.Logger) with propagate=True, so a
+  # LoggingIntegration on the root logger captures it: ERROR+ become Sentry events (this catches the
+  # daemon errors that are caught-and-logged rather than crashing the process — the "some things, not
+  # all" gap), INFO+ become breadcrumbs for context. Lower event_level to WARNING for even more volume.
+  integrations.append(LoggingIntegration(level=logging.INFO, event_level=logging.ERROR))
+
+  init_kw = dict(
+    default_integrations=False,
+    release=get_version(),
+    integrations=integrations,
+    traces_sample_rate=1.0,
+    max_value_length=8192,
+    environment=env,
+  )
+  # enable_logs = structured Sentry Logs (separate from the LoggingIntegration events above).
+  if _sentry_sdk_supports_enable_logs():
+    init_kw["enable_logs"] = True
+
+  sentry_sdk.init(project.value, **init_kw)
+  # End BluePilot
 
   sentry_sdk.set_user({"id": dongle_id, "name": git_username})
   sentry_sdk.set_tag("dirty", build_metadata.openpilot.is_dirty)
