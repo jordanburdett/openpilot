@@ -182,6 +182,11 @@ def init(project: SentryProject) -> bool:
   sentry_sdk.set_tag("branch", build_metadata.channel)
   sentry_sdk.set_tag("commit", build_metadata.openpilot.git_commit)
   sentry_sdk.set_tag("device", HARDWARE.get_device_type())
+  # BluePilot: comma dongle ID as its own tag (not just sentry_sdk.set_user above) — Discord/webhook
+  # notifications only surface issue *tags* (apps.alerts.webhooks.gather_issue_tags), never the
+  # Sentry "user" object, so without this the dongle ID never appears outside the GlitchTip UI.
+  sentry_sdk.set_tag("dongle_id", dongle_id)
   sentry_sdk.set_tag("sunnylink_dongle_id", sunnylink_dongle_id)
+  # End BluePilot
 
   return True
