@@ -42,10 +42,19 @@ class SentryProject(Enum):
 # for this car" at .error() for the majority of supported vehicles that simply lack a custom model.
 # Filtered here (client-side, so they never leave the device) instead of at each call site, so this
 # stays one central, reviewable/extendable list rather than scattered severity fixes.
+# A filtered log line is still recorded as a breadcrumb (LoggingIntegration adds those independently
+# of before_send), so it still shows up as trailing context on a real crash from the same process —
+# only suppressed from becoming its own standalone issue.
 _NOISY_LOG_SUBSTRINGS = (
   "iso-tp query bad response",
   "iso-tp query response pending",
   "car doesn't match any Neural Network model",
+  # opendbc/car/car_helpers.py — routine, every boot; capture_fingerprint() above already tags
+  # carFingerprint/carName on this process's scope, which is the reliable way to get fingerprint
+  # context on a real crash (a tag doesn't decay out of the breadcrumb ring buffer like this would).
+  "'event': 'fingerprinted'",
+  # opendbc/car/fw_versions.py — fuzzy-match fingerprint variant of the same routine event.
+  "using fuzzy match",
 )
 
 
@@ -115,16 +124,16 @@ def capture_fingerprint_mock() -> None:
 
 
 def capture_fingerprint(candidate: str, car_name: str) -> None:
+  # BluePilot: tag-only, no capture_message() — a successful fingerprint is not itself a crash and
+  # shouldn't create its own issue. The tags persist on this process's scope, so they're attached
+  # automatically to any real crash this process reports later.
   try:
     set_user()
     sentry_sdk.set_tag("carFingerprint", candidate)
     sentry_sdk.set_tag("carName", car_name)
-
-    message = f"Fingerprinted {candidate}"
-    sentry_sdk.capture_message(message=message, level="info")
-    sentry_sdk.flush()
   except Exception as e:
     cloudlog.exception(f"sentry fingerprint exception: {e}")
+  # End BluePilot
 
 
 def set_tag(key: str, value: str) -> None:
