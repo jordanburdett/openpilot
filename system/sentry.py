@@ -36,6 +36,27 @@ class SentryProject(Enum):
   SELFDRIVE_NATIVE = SELFDRIVE
 
 
+# BluePilot: known-noisy log lines that log at ERROR severity for routine/expected conditions, not
+# bugs — e.g. isotp_parallel_query logs a bad ECU response at .error() on every fingerprint scan where
+# an ECU doesn't answer a diagnostic query cleanly (normal on real vehicles), and NNLC logs "no model
+# for this car" at .error() for the majority of supported vehicles that simply lack a custom model.
+# Filtered here (client-side, so they never leave the device) instead of at each call site, so this
+# stays one central, reviewable/extendable list rather than scattered severity fixes.
+_NOISY_LOG_SUBSTRINGS = (
+  "iso-tp query bad response",
+  "iso-tp query response pending",
+  "car doesn't match any Neural Network model",
+)
+
+
+def _before_send(event: dict, hint: dict) -> dict | None:
+  formatted = event.get("logentry", {}).get("formatted", "")
+  if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
+    return None
+  return event
+# End BluePilot
+
+
 def report_tombstone(fn: str, message: str, contents: str) -> None:
   cloudlog.error({'tombstone': message})
 
@@ -169,6 +190,7 @@ def init(project: SentryProject) -> bool:
     traces_sample_rate=1.0,
     max_value_length=8192,
     environment=env,
+    before_send=_before_send,
   )
   # enable_logs = structured Sentry Logs (separate from the LoggingIntegration events above).
   if _sentry_sdk_supports_enable_logs():
