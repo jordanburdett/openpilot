@@ -25,12 +25,13 @@ CRASHES_DIR = Paths.crash_log_root()
 class SentryProject(Enum):
   # BluePilot: report to our OWN self-hosted GlitchTip (Sentry-API compatible), which we fully control
   # — replaces the coworker-owned Sentry we could neither see nor configure.
-  # IoT-VLAN LAN address (GlitchTip VM's ens192, same subnet as devices) for on-bench testing;
-  # change to the public https:// Cloudflare-Tunnel URL before fleet rollout.
+  # Public HTTPS via Cloudflare Tunnel (glitchtip.bluepilot.dev) — reachable by the whole fleet,
+  # not just devices on the IoT VLAN. GlitchTip VM's LAN/IoT addresses (10.88.1.236 / 10.88.20.236)
+  # remain valid for on-bench testing if the tunnel is ever down.
   # Prior DSNs for reference:  sunnypilot upstream  = o1138119.ingest.us.sentry.io/4508660076052480
   #                            BluePilot Sentry(6.0) = o4510926103379968.ingest.us.sentry.io/4510926105739264
   # python project
-  SELFDRIVE = "http://06436d643ff64a6eadc42b3691de2198@10.88.20.236:8000/1"
+  SELFDRIVE = "https://06436d643ff64a6eadc42b3691de2198@glitchtip.bluepilot.dev/1"
   # native project
   SELFDRIVE_NATIVE = SELFDRIVE
 
