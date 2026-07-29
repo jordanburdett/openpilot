@@ -11,7 +11,7 @@ import cereal.messaging as messaging
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.can.parser import CANParser
-from opendbc.car.ford.values import FordFlags
+from opendbc.car.ford.values import CAR, FordFlags
 from opendbc.sunnypilot.car.ford.values_ext import BUTTONS
 from openpilot.common.swaglog import cloudlog
 
@@ -408,7 +408,12 @@ class CarStateExt:
           hybrid_battery.voltHighLimit = batt_data1["BattTrac_U_LimHi"]
           hybrid_battery.voltLowLimit = batt_data1["BattTrac_U_LimLo"]
           hybrid_battery.voltActual = batt_data1["BattTrac_U_Actl"]
-          hybrid_battery.ampsActual = batt_data1["BattTrac_I_Actl"]
+          # BattTrac_I_Actl reads a constant -750 A on the Mach-E (bytes 0-1 of 0x07A are always 0)
+          if self.CP.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1:
+            # motor current is positive when motoring; UI wants positive = charging, so negate
+            hybrid_battery.ampsActual = -cp.vl["MtrTracData_1_FD1"]["MtrTrac2_I_Actl"]
+          else:
+            hybrid_battery.ampsActual = batt_data1["BattTrac_I_Actl"]
           hybrid_battery.socMinPerc = batt_data3["BattTracSoc_Pc_MnPrtct"]
           hybrid_battery.socMaxPerc = batt_data3["BattTracSoc_Pc_MxPrtct"]
           hybrid_battery.socActual = batt_data4["BattTracSoc2_Pc_Actl"]

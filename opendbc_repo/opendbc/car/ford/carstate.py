@@ -201,6 +201,7 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
       pt_messages.append(("Battery_Traction_1_FD1", float('nan')))
       pt_messages.append(("Battery_Traction_3_FD1", float('nan')))
       pt_messages.append(("Battery_Traction_4_FD1", float('nan')))
+      pt_messages.append(("MtrTracData_1_FD1", float('nan')))
 
     if CP.flags & FordFlags.ALT_STEER_ANGLE:
       pt_messages += [
