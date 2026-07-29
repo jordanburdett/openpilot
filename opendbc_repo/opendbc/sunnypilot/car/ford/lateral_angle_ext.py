@@ -32,7 +32,7 @@ from opendbc.sunnypilot.car.ford.human_turn import HumanTurnDetector
 from opendbc.sunnypilot.car.ford.values_ext import BP_ANGLE_LIMITS
 from selfdrive.modeld.constants import ModelConstants
 
-# Hard-coded per-platform gain defaults (not user-tunable).
+# Hard-coded per-platform gain defaults.
 # CAN vehicles (Escape MK4, Bronco Sport, Explorer, Maverick, Edge)
 _GAIN_CAN         = (1.00, 1.15)
 # CAN-FD body-on-frame trucks (F-150, Lightning, Expedition, Ranger)
@@ -136,9 +136,10 @@ class LateralAngleExt:
     self.path_angle_gain_highC_highV = 1.0  # gain at high speed, high curvature
     self.bp_path_angle_gain_lowC_highV = 1.0
     self.bp_path_angle_gain_highC_highV = 1.0
-    # User-tunable "feel" multipliers: read from FordLowSpeedFactor_ang / FordHighSpeedFactor_ang params.
+    # User-tunable "feel" multipliers: read from the angle-tuning Params below.
     self.low_speed_curv_factor = 1.0
     self.high_speed_curv_factor = 1.0
+    self.user_dampening_factor = 1.0
     self.bp_low_speed_curv_factor = 1.0
     self.bp_high_speed_curv_factor = 1.0
     # BluePilot: angle mode's own lane-change scaling factor, independent of curvature mode's
@@ -173,7 +174,7 @@ class LateralAngleExt:
     self.press_timer_s = 0.0          # continuous steeringPressed time, for the hand-off blip
 
   def update_angle_params(self, params):
-    """Sets per-platform gain defaults and reads user feel-factor params."""
+    """Sets per-platform gain defaults and reads user angle-tuning params."""
     self._ensure_lateral_curv_initialized(self.CP)
     fp = getattr(self.CP, 'carFingerprint', '')
     if fp in _CANFD_BOF_CARS:
@@ -185,13 +186,16 @@ class LateralAngleExt:
     self.path_angle_gain_lowC_highV = low
     self.path_angle_gain_highC_highV = high
     if params is not None and hasattr(params, "get"):
-      for attr, key in (("low_speed_curv_factor", "FordLowSpeedFactor_ang"),
-                        ("high_speed_curv_factor", "FordHighSpeedFactor_ang")):
+      for attr, key, min_value, max_value in (
+        ("low_speed_curv_factor", "FordLowSpeedFactor_ang", 0.5, 1.5),
+        ("high_speed_curv_factor", "FordHighSpeedFactor_ang", 0.5, 1.5),
+        ("user_dampening_factor", "FordHighSpeedDampening_ang", 0.75, 1.25),
+      ):
         try:
           raw = params.get(key, return_default=True)
           if raw is not None and raw != b"":
             setattr(self, attr, float(clip(
-              float(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw), 0.5, 1.5)))
+              float(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw), min_value, max_value)))
         except Exception:
           pass
       try:
@@ -452,7 +456,9 @@ class LateralAngleExt:
 
 
     # Speed-interpolated gain: at low speed both curves use 1.0; at high speed the params take effect.
-    self.low_gain_calc = interp(v_ego, [13.5, 26.82], [1.0, self.path_angle_gain_lowC_highV])
+    self.low_gain_calc = interp(
+      v_ego, [13.5, 26.82], [1.0, (self.path_angle_gain_lowC_highV * self.user_dampening_factor)]
+    )
     self.high_gain_calc = interp(v_ego, [13.5, 26.82], [(1.30 * self.low_speed_curv_factor), (self.path_angle_gain_highC_highV * self.high_speed_curv_factor)])
 
     # As the curve gets bigger, we will need a little boost to the signal to to not understeer
