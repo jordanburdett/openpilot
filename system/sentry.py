@@ -1,14 +1,14 @@
 """Install exception handler for process crash."""
-import logging
+import logging  # BluePilot: LoggingIntegration below
 import os
 import traceback
 from datetime import datetime
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version as pkg_version
+from importlib.metadata import PackageNotFoundError, version as pkg_version  # BluePilot: enable_logs version guard
 
 import sentry_sdk
 from sentry_sdk.integrations.threading import ThreadingIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration  # BluePilot: max-coverage log capture (see init())
 
 from openpilot.common.params import Params
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
