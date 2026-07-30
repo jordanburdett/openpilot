@@ -70,6 +70,7 @@ _NOISY_LOG_SUBSTRINGS = (
 _UPSTREAM_ONLY_DAEMONS = (
   "deleter",
   "uploader",
+  "hardwared",
 )
 
 
