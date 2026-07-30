@@ -52,13 +52,18 @@ _NOISY_LOG_SUBSTRINGS = (
   # opendbc/car/car_helpers.py — routine, every boot; capture_fingerprint() above already tags
   # carFingerprint/carName on this process's scope, which is the reliable way to get fingerprint
   # context on a real crash (a tag doesn't decay out of the breadcrumb ring buffer like this would).
+  # carlog.error({...}) with a PLAIN dict -> Python's default repr -> single-quoted.
   "'event': 'fingerprinted'",
   # opendbc/car/fw_versions.py — fuzzy-match fingerprint variant of the same routine event.
   "using fuzzy match",
   # selfdrive/selfdrived/selfdrived.py — stock/sunnypilot code logs init diagnostics via
   # cloudlog.event(..., error=True) UNCONDITIONALLY on every successful init, healthy or not (not
   # gated on anything actually being wrong) — fires fleet-wide on every boot forever if not filtered.
-  "'event': 'selfdrived.initialized'",
+  # NOTE: cloudlog.event(...) wraps the payload in NiceOrderedDict (common/logging_extra.py), whose
+  # __str__ is json_robust_dumps() -> real JSON, DOUBLE-quoted. This is NOT the same as a plain dict
+  # literal passed straight to .error({...}) (like the fingerprinted entry above), which renders via
+  # Python's default repr (single-quoted). Get this wrong and the entry silently never matches.
+  '"event": "selfdrived.initialized"',
 )
 
 # BluePilot: daemons whose code we never touch (verified: no "# BluePilot:" markers in either file
