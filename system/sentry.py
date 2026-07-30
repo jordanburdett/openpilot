@@ -61,8 +61,21 @@ _NOISY_LOG_SUBSTRINGS = (
   "'event': 'selfdrived.initialized'",
 )
 
+# BluePilot: daemons whose code we never touch (verified: no "# BluePilot:" markers in either file
+# at the time this was added). Errors there are upstream comma/openpilot issues, not ours to fix —
+# comma's own fleet-scale telemetry is the right place for that signal, not our GlitchTip. Filters
+# the WHOLE daemon regardless of message content, unlike the precise per-line _NOISY_LOG_SUBSTRINGS
+# above. Re-verify with `grep -rn BluePilot <file>` before adding another daemon here — this is a
+# blind spot by design: a genuinely new/severe bug in a listed daemon would go unreported too.
+_UPSTREAM_ONLY_DAEMONS = (
+  "deleter",
+  "uploader",
+)
+
 
 def _before_send(event: dict, hint: dict) -> dict | None:
+  if event.get("tags", {}).get("daemon") in _UPSTREAM_ONLY_DAEMONS:
+    return None
   formatted = event.get("logentry", {}).get("formatted", "")
   if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
     return None
