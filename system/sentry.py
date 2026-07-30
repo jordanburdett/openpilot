@@ -64,6 +64,11 @@ _NOISY_LOG_SUBSTRINGS = (
   # literal passed straight to .error({...}) (like the fingerprinted entry above), which renders via
   # Python's default repr (single-quoted). Get this wrong and the entry silently never matches.
   '"event": "selfdrived.initialized"',
+  # selfdrive/ui/lib/prime_state.py — polls comma's own api.commadotai.com every 5s on a background
+  # thread, broadly caught (no crash, retries automatically) — a transient network hiccup, not a bug.
+  # Matches the stable prefix only; the exception text after it varies by failure type (timeout, DNS,
+  # connection refused, ...). Plain f-string, no NiceOrderedDict/JSON quoting concern here.
+  "Failed to fetch prime status:",
 )
 
 # BluePilot: daemons whose code we never touch (verified: no "# BluePilot:" markers in either file
