@@ -55,6 +55,10 @@ _NOISY_LOG_SUBSTRINGS = (
   "'event': 'fingerprinted'",
   # opendbc/car/fw_versions.py — fuzzy-match fingerprint variant of the same routine event.
   "using fuzzy match",
+  # selfdrive/selfdrived/selfdrived.py — stock/sunnypilot code logs init diagnostics via
+  # cloudlog.event(..., error=True) UNCONDITIONALLY on every successful init, healthy or not (not
+  # gated on anything actually being wrong) — fires fleet-wide on every boot forever if not filtered.
+  "'event': 'selfdrived.initialized'",
 )
 
 
