@@ -3,6 +3,7 @@ import json  # BluePilot: commIssue startup-window filter
 import logging  # BluePilot: LoggingIntegration below
 import os
 import re  # BluePilot: model-eval frame-drop threshold filter
+import time  # BluePilot: model-eval frame-drop rate limiting
 import traceback
 from datetime import datetime
 from enum import Enum
@@ -110,18 +111,32 @@ def _is_startup_comm_issue(formatted: str) -> bool:
 # BluePilot: selfdrive/modeld/modeld.py and sunnypilot/modeld_v2/modeld.py (stock/sunnypilot,
 # unmodified by us — verified no "# BluePilot:" markers) log "skipping model eval. Dropped N
 # frames" via cloudlog.error() UNCONDITIONALLY on any vipc_dropped_frames > 0 — no rate-limit,
-# no dedup, one event per occurrence. At MODEL_RUN_FREQ=20Hz a 1-5 frame drop is <=250ms of
-# routine scheduling jitter (thermal, brief CPU contention, etc.) and happens constantly
-# fleet-wide — this is what floods GlitchTip. A double-digit drop is a real, driver-relevant
-# stall worth knowing about, so this is a threshold filter (like commIssue above), not a
-# blanket one — we still want visibility into genuinely large stalls.
+# no dedup, one event per occurrence. In practice this floods GlitchTip with a wide spread of
+# values (dozens in the 20s-30s, up to 86 seen), not just a handful of small outliers — so a
+# magnitude cutoff alone isn't enough; even a genuinely large stall can repeat many times in one
+# rough drive. Two layers: drops <=75 frames (~3.75s at MODEL_RUN_FREQ=20Hz) are suppressed
+# outright as unremarkable for this fleet; anything larger is rate-limited to at most one report
+# per _MODEL_EVAL_DROP_REPORT_INTERVAL_S so a single bad drive can't spam dozens of alerts for
+# the same underlying condition. Rate-limit state is per-process (module-level), so it naturally
+# resets on each daemon restart (new boot/drive gets a fresh look).
 _MODEL_EVAL_DROP_PATTERN = re.compile(r"skipping model eval\. Dropped (\d+) frames")
-_MODEL_EVAL_DROP_THRESHOLD_FRAMES = 5  # ~250ms at MODEL_RUN_FREQ=20Hz
+_MODEL_EVAL_DROP_THRESHOLD_FRAMES = 75  # ~3.75s at MODEL_RUN_FREQ=20Hz
+_MODEL_EVAL_DROP_REPORT_INTERVAL_S = 600  # at most one report per 10 min, even for large stalls
+_last_model_eval_drop_report_t = 0.0
 
 
-def _is_minor_frame_drop(formatted: str) -> bool:
+def _should_suppress_frame_drop(formatted: str) -> bool:
   m = _MODEL_EVAL_DROP_PATTERN.search(formatted)
-  return m is not None and int(m.group(1)) <= _MODEL_EVAL_DROP_THRESHOLD_FRAMES
+  if m is None:
+    return False
+  if int(m.group(1)) <= _MODEL_EVAL_DROP_THRESHOLD_FRAMES:
+    return True
+  global _last_model_eval_drop_report_t
+  now = time.monotonic()
+  if now - _last_model_eval_drop_report_t < _MODEL_EVAL_DROP_REPORT_INTERVAL_S:
+    return True
+  _last_model_eval_drop_report_t = now
+  return False
 
 
 def _before_send(event: dict, hint: dict) -> dict | None:
@@ -130,7 +145,7 @@ def _before_send(event: dict, hint: dict) -> dict | None:
   formatted = event.get("logentry", {}).get("formatted", "")
   if _is_startup_comm_issue(formatted):
     return None
-  if _is_minor_frame_drop(formatted):
+  if _should_suppress_frame_drop(formatted):
     return None
   if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
     return None
