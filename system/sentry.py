@@ -2,6 +2,7 @@
 import json  # BluePilot: commIssue startup-window filter
 import logging  # BluePilot: LoggingIntegration below
 import os
+import re  # BluePilot: model-eval frame-drop threshold filter
 import traceback
 from datetime import datetime
 from enum import Enum
@@ -106,11 +107,30 @@ def _is_startup_comm_issue(formatted: str) -> bool:
   return isinstance(dt, (int, float)) and dt < _COMM_ISSUE_STARTUP_WINDOW_S
 
 
+# BluePilot: selfdrive/modeld/modeld.py and sunnypilot/modeld_v2/modeld.py (stock/sunnypilot,
+# unmodified by us — verified no "# BluePilot:" markers) log "skipping model eval. Dropped N
+# frames" via cloudlog.error() UNCONDITIONALLY on any vipc_dropped_frames > 0 — no rate-limit,
+# no dedup, one event per occurrence. At MODEL_RUN_FREQ=20Hz a 1-5 frame drop is <=250ms of
+# routine scheduling jitter (thermal, brief CPU contention, etc.) and happens constantly
+# fleet-wide — this is what floods GlitchTip. A double-digit drop is a real, driver-relevant
+# stall worth knowing about, so this is a threshold filter (like commIssue above), not a
+# blanket one — we still want visibility into genuinely large stalls.
+_MODEL_EVAL_DROP_PATTERN = re.compile(r"skipping model eval\. Dropped (\d+) frames")
+_MODEL_EVAL_DROP_THRESHOLD_FRAMES = 5  # ~250ms at MODEL_RUN_FREQ=20Hz
+
+
+def _is_minor_frame_drop(formatted: str) -> bool:
+  m = _MODEL_EVAL_DROP_PATTERN.search(formatted)
+  return m is not None and int(m.group(1)) <= _MODEL_EVAL_DROP_THRESHOLD_FRAMES
+
+
 def _before_send(event: dict, hint: dict) -> dict | None:
   if event.get("tags", {}).get("daemon") in _UPSTREAM_ONLY_DAEMONS:
     return None
   formatted = event.get("logentry", {}).get("formatted", "")
   if _is_startup_comm_issue(formatted):
+    return None
+  if _is_minor_frame_drop(formatted):
     return None
   if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
     return None
