@@ -1,5 +1,4 @@
 """Install exception handler for process crash."""
-import json  # BluePilot: commIssue startup-window filter
 import logging  # BluePilot: LoggingIntegration below
 import os
 import re  # BluePilot: model-eval frame-drop threshold filter
@@ -72,6 +71,16 @@ _NOISY_LOG_SUBSTRINGS = (
   # Matches the stable prefix only; the exception text after it varies by failure type (timeout, DNS,
   # connection refused, ...). Plain f-string, no NiceOrderedDict/JSON quoting concern here.
   "Failed to fetch prime status:",
+  # selfdrive/selfdrived/selfdrived.py — commIssue ("Communication Issue Between Processes") IS a
+  # real driver-facing alert, and we tried a threshold approach first (filter only transient ones in
+  # the first 20s after process start, via a 'dt' field, keep anything after that as presumed
+  # persistent). In practice a single flapping/unstable device blows past that: 151 commIssue alerts
+  # from one dongle overnight, all with dt well past the startup window, so "persistent" != "rare".
+  # Blanket-filtered now — cloudlog.event() still writes it locally on-device every time (this only
+  # stops it from becoming a GlitchTip issue), so it's still in a user's RLOG if we need to pull one
+  # for someone reporting real persistent comm issues. Matches on the JSON event key only (see the
+  # selfdrived.initialized entry above for why: NiceOrderedDict -> double-quoted JSON, not repr).
+  '"event": "commIssue"',
 )
 
 # BluePilot: daemons whose code we never touch (verified: no "# BluePilot:" markers in either file
@@ -85,28 +94,6 @@ _UPSTREAM_ONLY_DAEMONS = (
   "uploader",
   "hardwared",
 )
-
-# BluePilot: commIssue (selfdrive/selfdrived/selfdrived.py) is a REAL driver-facing alert (soft-
-# disable + no-entry, "Communication Issue Between Processes") — unlike everything else filtered
-# above, it's not always benign, so it does NOT get a blanket substring/daemon filter. Instead:
-# transient ones in the first ~20s after process start (peripheral streams like modelV2/
-# liveCalibration/liveDelay still catching up — the common case seen in practice) are filtered;
-# anything after that window is presumed a genuine mid-drive regression and left alone. Relies on
-# a 'dt' field BP added to that specific log call (see selfdrived.py) — older commIssue messages
-# without it (e.g. a device that hasn't updated yet) are NOT filtered, the safe default.
-_COMM_ISSUE_STARTUP_WINDOW_S = 20.0
-
-
-def _is_startup_comm_issue(formatted: str) -> bool:
-  if '"event": "commIssue"' not in formatted:
-    return False
-  try:
-    payload = json.loads(formatted)
-  except (json.JSONDecodeError, ValueError):
-    return False
-  dt = payload.get("dt")
-  return isinstance(dt, (int, float)) and dt < _COMM_ISSUE_STARTUP_WINDOW_S
-
 
 # BluePilot: selfdrive/modeld/modeld.py and sunnypilot/modeld_v2/modeld.py (stock/sunnypilot,
 # unmodified by us — verified no "# BluePilot:" markers) log "skipping model eval. Dropped N
@@ -143,8 +130,6 @@ def _before_send(event: dict, hint: dict) -> dict | None:
   if event.get("tags", {}).get("daemon") in _UPSTREAM_ONLY_DAEMONS:
     return None
   formatted = event.get("logentry", {}).get("formatted", "")
-  if _is_startup_comm_issue(formatted):
-    return None
   if _should_suppress_frame_drop(formatted):
     return None
   if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
