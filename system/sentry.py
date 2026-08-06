@@ -185,9 +185,17 @@ def save_exception(content: str) -> None:
     cloudlog.exception("error when attempting to save exception")
 
 
-def capture_fingerprint_mock() -> None:
+def capture_fingerprint_mock(vin: str | None = None) -> None:
   try:
     set_user()
+    # BluePilot: tag the VIN so this is actionable — without it we can't tell a VIN-query failure
+    # (vin == VIN_UNKNOWN, "0"*17, see opendbc/car/vin.py) from a case where the VIN was read fine
+    # but nothing (VIN-based or CAN/FW) matched it. Same data opendbc_repo/car_helpers.py now logs
+    # locally for the "car doesn't match any fingerprints" carlog.error() path — this is the other
+    # reporting path for the same failure (see sunnypilot/selfdrive/car/interfaces.py:log_fingerprint).
+    if vin:
+      sentry_sdk.set_tag("carVin", vin)
+    # End BluePilot
     message = "car doesn't match any fingerprints"
     sentry_sdk.capture_message(message=message, level="error")
     sentry_sdk.flush()
