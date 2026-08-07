@@ -150,7 +150,13 @@ def report_tombstone(fn: str, message: str, contents: str) -> None:
 
 
 def capture_exception(*args, **kwargs) -> None:
-  cloudlog.error("crash", exc_info=kwargs.get('exc_info', 1))
+  # BluePilot: was cloudlog.error(...) -- LoggingIntegration(event_level=ERROR) turned this into its
+  # own GlitchTip event duplicating the properly stack-trace-grouped sentry_sdk.capture_exception()
+  # call a few lines down, for the exact same exception. Doesn't inflate *issue* count the way
+  # save_exception()'s did below (exc_info fingerprints this into the same issue), just adds a
+  # redundant event under it. info() keeps it as a breadcrumb.
+  cloudlog.info("crash", exc_info=kwargs.get('exc_info', 1))
+  # End BluePilot
 
   try:
     save_exception(traceback.format_exc())
@@ -180,7 +186,15 @@ def save_exception(content: str) -> None:
         else:
           f.write(content)
 
-    cloudlog.error(f"logged crash to {files}")
+    # BluePilot: was cloudlog.error(...). Two compounding problems: (1) same redundancy as
+    # capture_exception() above -- the real report is sentry_sdk.capture_exception(), called right
+    # after this returns. (2) worse: the message embeds a per-call timestamped filename, so GlitchTip
+    # can never group repeats -- every single occurrence is a distinct "new issue". Confirmed via direct
+    # DB query: one device stuck in a UI crash loop produced 11,767 distinct "logged crash to [...]"
+    # issues in 20 hours, each firing its own alert (this is what was flooding Discord). info() keeps
+    # it as a breadcrumb without creating an issue at all.
+    cloudlog.info(f"logged crash to {files}")
+    # End BluePilot
   except Exception:
     cloudlog.exception("error when attempting to save exception")
 
