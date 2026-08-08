@@ -180,7 +180,8 @@ class CAR(Platforms):
       FordCarDocs("Lincoln Aviator 2020-24", "Co-Pilot360 Plus", plug_in_hybrid=True),  # Hybrid: Grand Touring only
     ],
     CarSpecs(mass=2050, wheelbase=3.025, steerRatio=16.8),
-    wmis={'1FM', '5LM'}, vds_codes={'5K7', '5K8', '5J7'},
+    # SK7/SK8 (Explorer) and YJ8/YJ9/5J9 (Aviator) are the post-2021 descriptor blocks
+    wmis={'1FM', '5LM'}, vds_codes={'5K7', '5K8', '5J7', 'SK7', 'SK8', 'YJ8', 'YJ9', '5J9'},
     years={MY_2020, MY_2021, MY_2022, MY_2023, MY_2024},
   )
   FORD_EXPEDITION_MK4 = FordCANFDPlatformConfig(
