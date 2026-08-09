@@ -536,7 +536,7 @@ class BluePilotLayout(Widget):
       lambda: tr("High Speed Low Curve Adjustment Factor"),
       lambda: tr("Tune adjustment factor for low curve straightaways (highways) at high speeds. If oversteering, reduce. If understeering, increase"),
       param="FordHighSpeedDampening_ang",
-      min_value=0.75,
+      min_value=0.25,
       max_value=1.25,
       step=0.01,
       icon="chffr_wheel.png"

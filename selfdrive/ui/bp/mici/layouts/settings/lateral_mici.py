@@ -23,7 +23,7 @@ class LateralLayoutMici(NavScroller):
       "High Speed Adjustment Factor", "FordHighSpeedFactor_ang", min=0.5, max=1.5, step=0.01,
     )
     self.high_speed_dampening = BigParamFloatControl(
-      "High Speed Low Curve Adjustment Factor", "FordHighSpeedDampening_ang", min=0.75, max=1.25, step=0.01,
+      "High Speed Low Curve Adjustment Factor", "FordHighSpeedDampening_ang", min=0.25, max=1.25, step=0.01,
     )
     self.lane_change_factor_high_ang = BigParamFloatControl(
       "Lane Change Factor High", "lane_change_factor_high_ang", min=0.85, max=1.50,
