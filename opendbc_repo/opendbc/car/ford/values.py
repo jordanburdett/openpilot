@@ -139,8 +139,15 @@ MY_2020, MY_2021, MY_2022, MY_2023, MY_2024, MY_2025 = 'L', 'M', 'N', 'P', 'R', 
 
 # VIN tables sourced from https://github.com/commaai/openpilot/issues/31052 and NHTSA vPIC
 # F-150 and Lightning share WMI and body codes; position 8 is the powertrain, L/V = electric
-F150_VDS_CODES = {'F1C', 'F1E', 'W1C', 'W1E', 'X1C', 'X1E', 'W1R', 'W1P', 'W1S', 'W1T'}
-F150_ELECTRIC_CODES = {'L', 'V'}
+#
+# W1B/W3L/W5L/W7L are the 2024-25 series codes (Pro / XLT+Flash / Lariat / Platinum), and K/S/7/M
+# are the matching 2024-25 SR/ER powertrain codes. Without these a real 2024-25 Lightning VIN (for
+# example 1FT6W3L78SWG05094) fails the vds_codes check before position 8 is even read, and falls
+# through to no match. This set is the best known mapping, not yet cross-checked against the Ford
+# Pro VIN guide.
+F150_VDS_CODES = {'F1C', 'F1E', 'W1C', 'W1E', 'X1C', 'X1E', 'W1R', 'W1P', 'W1S', 'W1T',
+                   'W1B', 'W3L', 'W5L', 'W7L'}
+F150_ELECTRIC_CODES = {'L', 'V', 'K', 'S', '7', 'M'}
 MACH_E_VDS_CODES = {'K1R', 'K1S', 'K2S', 'K3R', 'K3S', 'K4S'}
 
 

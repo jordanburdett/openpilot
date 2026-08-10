@@ -21,6 +21,18 @@ CASES = [
   ('1FTVW1EL4NWXXXXXX', CAR.FORD_F_150_LIGHTNING_MK1),  # position 8 = L -> electric
   ('1FTFW1E85MFXXXXXX', CAR.FORD_F_150_MK14),           # same body code, position 8 = E -> ICE
 
+  # 2024-25 generation: body code 6, per-trim series codes W1B/W3L/W5L/W7L, SR/ER powertrain
+  # codes K/S/7/M. This set is the best known mapping, not yet cross-checked against the Ford
+  # Pro VIN guide.
+  ('1FT6W3L78SWG05094', CAR.FORD_F_150_LIGHTNING_MK1),  # real VIN, 2025 Lightning Flash, ER
+  ('1FT6W1BK8RGXXXXXX', CAR.FORD_F_150_LIGHTNING_MK1),  # 2024 Lightning Pro, SR
+  ('1FT6W7LM8SGXXXXXX', CAR.FORD_F_150_LIGHTNING_MK1),  # 2025 Lightning Platinum, ER fleet
+
+  ('1FT6W3LC8SWXXXXXX', None),                          # 2025 gas F-150, same series, non-electric position 8
+  ('1FTBW3XKXPKB78450', None),                          # real 2023 E-Transit, series W3X, shares the old BEV code K
+  ('1FT6W3XK8SWXXXXXX', None),                          # E-Transit-shaped 2024-25 VIN, series W3X, new BEV code K
+  ('1FT6F4H78SWXXXXXX', None),                          # illustrative non-F-150 series (not a verified real code)
+
   # Constructed from NHTSA vPIC decodes (real VIN prefixes, filler serials) for the platforms
   # that have no VIN in comma's segment database
   ('2FMPK4J97NBXXXXXX', CAR.FORD_EDGE_MK2),             # Edge 2022
