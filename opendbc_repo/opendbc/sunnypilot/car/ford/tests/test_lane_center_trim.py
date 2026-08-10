@@ -1,0 +1,155 @@
+"""
+Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
+
+This file is part of sunnypilot and is licensed under the MIT License.
+See the LICENSE.md file in the root directory for more details.
+"""
+
+# Unit tests for LaneCenterTrim (angle-mode lane centering / advanced lane positioning).
+#
+# Isolated from CarController/LateralAngleExt -- exercises the class directly against a
+# minimal fake modelV2-shaped object.
+
+import unittest
+
+from opendbc.sunnypilot.car.ford.lane_center_trim import LaneCenterTrim
+
+
+class _XY:
+  def __init__(self, x, y):
+    self.x = x
+    self.y = y
+
+
+class _Position:
+  def __init__(self, x, y):
+    self.x = x
+    self.y = y
+
+
+class _Model:
+  def __init__(self, lane_lines, probs, stds, pos_x, pos_y):
+    self.laneLines = lane_lines
+    self.laneLineProbs = probs
+    self.laneLineStds = stds
+    self.position = _Position(pos_x, pos_y)
+
+
+def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9, 0.9), stds=(0.1, 0.1, 0.1, 0.1)):
+  xs = list(range(0, 60, 2))
+  half = width / 2.0
+  lane_lines = [
+    _XY(xs, [lane_center_y - half - 3.7] * len(xs)),  # far left (unused)
+    _XY(xs, [lane_center_y - half] * len(xs)),         # ego left
+    _XY(xs, [lane_center_y + half] * len(xs)),         # ego right
+    _XY(xs, [lane_center_y + half + 3.7] * len(xs)),  # far right (unused)
+  ]
+  pos_x = list(range(0, 60, 2))
+  pos_y = [model_y] * len(pos_x)
+  return _Model(lane_lines, list(probs), list(stds), pos_x, pos_y)
+
+
+class TestLaneCenterTrim(unittest.TestCase):
+  V_EGO = 15.0  # m/s -- at/above the 9-15 m/s ramp top, full speed authority
+
+  def setUp(self):
+    self.trim = LaneCenterTrim()
+
+  def _run(self, model, kappa_cmd=0.0, enabled=True, offset=0.0, gain=1.0, lat_active=True,
+            lane_change=False, v_ego=None, iterations=1):
+    result = kappa_cmd
+    for _ in range(iterations):
+      result = self.trim.update(kappa_cmd, model, v_ego if v_ego is not None else self.V_EGO,
+                                 enabled, offset, gain, lat_active, lane_change)
+    return result
+
+  def test_disabled_no_correction(self):
+    model = _good_model()
+    self._run(model, enabled=False, offset=1.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_inactive_no_correction(self):
+    model = _good_model()
+    self._run(model, lat_active=False, offset=1.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_lane_change_no_correction(self):
+    model = _good_model()
+    self._run(model, lane_change=True, offset=1.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_no_model_no_correction(self):
+    self._run(None, offset=1.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_zero_offset_centered_no_correction(self):
+    # Model already tracks lane center exactly; no error to correct.
+    model = _good_model(lane_center_y=0.0, model_y=0.0)
+    self._run(model, offset=0.0, iterations=50)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_offset_converges_to_clipped_ceiling(self):
+    # A large offset saturates the raw correction against its safety ceiling; full gain and full
+    # speed authority means the filtered correction converges to that ceiling.
+    model = _good_model()
+    self._run(model, offset=5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+
+  def test_gain_scales_correction_linearly(self):
+    model = _good_model()
+    self._run(model, offset=5.0, gain=0.5, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.002, places=3)
+
+  def test_negative_offset_flips_sign(self):
+    model = _good_model()
+    self._run(model, offset=-5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, -0.004, places=3)
+
+  def test_speed_ramp_zero_below_9ms(self):
+    model = _good_model()
+    self._run(model, offset=5.0, gain=1.0, v_ego=5.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_speed_ramp_partial_between_9_and_15ms(self):
+    model = _good_model()
+    self._run(model, offset=5.0, gain=1.0, v_ego=12.0, iterations=500)
+    # speed_factor at 12 m/s is 0.5 on the [9, 15] -> [0, 1] ramp
+    self.assertAlmostEqual(self.trim.correction, 0.004 * 0.5, places=3)
+
+  def test_low_laneline_probability_no_correction(self):
+    model = _good_model(probs=(0.9, 0.3, 0.9, 0.9))
+    self._run(model, offset=5.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_high_laneline_std_no_correction(self):
+    model = _good_model(stds=(0.1, 0.5, 0.1, 0.1))
+    self._run(model, offset=5.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_implausible_lane_width_no_correction(self):
+    model = _good_model(width=1.5)  # below _MIN_LANE_WIDTH_M
+    self._run(model, offset=5.0, iterations=50)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_added_to_kappa_cmd(self):
+    model = _good_model()
+    result = self._run(model, kappa_cmd=0.01, offset=5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(result, 0.01 + 0.004, places=3)
+
+  def test_reset_zeroes_filter(self):
+    model = _good_model()
+    self._run(model, offset=5.0, gain=1.0, iterations=200)
+    self.assertNotEqual(self.trim.correction, 0.0)
+    self.trim.reset()
+    self.assertEqual(self.trim.correction, 0.0)
+
+  def test_disable_mid_stream_resets(self):
+    model = _good_model()
+    self._run(model, offset=5.0, gain=1.0, iterations=200)
+    self.assertNotEqual(self.trim.correction, 0.0)
+    self._run(model, enabled=False, offset=5.0, gain=1.0, iterations=1)
+    self.assertEqual(self.trim.correction, 0.0)
+
+
+if __name__ == "__main__":
+  unittest.main()
