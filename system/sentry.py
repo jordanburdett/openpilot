@@ -6,11 +6,10 @@ import time  # BluePilot: model-eval frame-drop rate limiting
 import traceback
 from datetime import datetime
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version as pkg_version  # BluePilot: enable_logs version guard
 
 import sentry_sdk
 from sentry_sdk.integrations.threading import ThreadingIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration  # BluePilot: max-coverage log capture (see init())
+from sentry_sdk.integrations.logging import LoggingIntegration  # BluePilot: log capture, tuned for memory (see init())
 
 from openpilot.common.params import Params
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
@@ -249,27 +248,6 @@ def get_properties() -> tuple[str, str, str]:
   return dongle_id, git_username, sunnylink_dongle_id
 
 
-# BluePilot: enable_logs exists only on sentry-sdk >= ~2.35; older builds (incl. some AGNOS venvs)
-# raise TypeError on sentry_sdk.init(enable_logs=...). Gate it on the installed version.
-def _sentry_sdk_supports_enable_logs() -> bool:
-  try:
-    v = pkg_version("sentry-sdk")
-  except PackageNotFoundError:
-    return False
-  parts: list[int] = []
-  for segment in v.split(".")[:3]:
-    digits = "".join(ch for ch in segment if ch.isdigit())
-    if not digits:
-      break
-    parts.append(min(int(digits), 9999))
-    if len(parts) == 3:
-      break
-  while len(parts) < 3:
-    parts.append(0)
-  return tuple(parts) >= (2, 35, 0)
-# End BluePilot
-
-
 def init(project: SentryProject) -> bool:
   build_metadata = get_build_metadata()
 
@@ -280,24 +258,36 @@ def init(project: SentryProject) -> bool:
   if project == SentryProject.SELFDRIVE:
     integrations.append(ThreadingIntegration(propagate_hub=True))
 
-  # BluePilot: maximum coverage. cloudlog is a SwagLogger(logging.Logger) with propagate=True, so a
-  # LoggingIntegration on the root logger captures it: ERROR+ become Sentry events (this catches the
-  # daemon errors that are caught-and-logged rather than crashing the process — the "some things, not
-  # all" gap), INFO+ become breadcrumbs for context. Lower event_level to WARNING for even more volume.
-  integrations.append(LoggingIntegration(level=logging.INFO, event_level=logging.ERROR))
+  # BluePilot: cloudlog is a SwagLogger(logging.Logger) with propagate=True, so a LoggingIntegration
+  # on the root logger captures it: ERROR+ become Sentry events (catches daemon errors that are
+  # caught-and-logged rather than crashing the process), WARNING+ become breadcrumbs for trailing
+  # context on a real crash.
+  #
+  # This used to be level=logging.INFO with max_value_length=8192 (8x sentry_sdk's own 1024 default)
+  # and no max_breadcrumbs cap (sentry_sdk default: 100) and traces_sample_rate=1.0 (100% APM/span
+  # sampling) and enable_logs=True (a SECOND structured-logs capture pipeline duplicating the same
+  # log stream) -- "maximum coverage", applied fleet-wide since sentry.init() runs once in
+  # manager.py before the pre-fork daemon-spawn loop, so every one of ~30-40 daemon processes per
+  # device independently accumulates its own breadcrumb/trace/log buffers for its whole run.
+  # Multiple low-memory-reboot reports on bp-7.0 traced back to this (see
+  # bluepilot/agent_info/23_Sentry_Memory_Findings_2026-08-11.html) -- INFO-level cloudlog calls are
+  # extremely frequent throughout this codebase, and 8x-larger breadcrumb values times up to 100 of
+  # them times dozens of long-running processes adds up on a 3.7GB device. Tuned down, not reverted:
+  # WARNING-level breadcrumbs still give useful trailing context without routine info-level chatter;
+  # traces and the redundant second logs pipeline are dropped since nothing in our crash-triage
+  # workflow has used either (everything so far has come from Issues/breadcrumbs/tags).
+  integrations.append(LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR))
 
   init_kw = dict(
     default_integrations=False,
     release=get_version(),
     integrations=integrations,
-    traces_sample_rate=1.0,
-    max_value_length=8192,
+    traces_sample_rate=0.0,
+    max_value_length=1024,  # back to sentry_sdk's own default
+    max_breadcrumbs=50,  # explicit cap, half of sentry_sdk's 100 default
     environment=env,
     before_send=_before_send,
   )
-  # enable_logs = structured Sentry Logs (separate from the LoggingIntegration events above).
-  if _sentry_sdk_supports_enable_logs():
-    init_kw["enable_logs"] = True
 
   sentry_sdk.init(project.value, **init_kw)
   # End BluePilot
