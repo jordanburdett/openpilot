@@ -17,9 +17,11 @@ applies to ``kappa_cmd``. That attempt was removed; only the DBC-required zero c
 **Lane centering trim (``lane_center_trim.py``)** replaces it: a small correction applied to
 ``kappa_cmd`` itself (see ``LaneCenterTrim``), before the deviation clip / gain table / PSCM
 clamp / soft ROC below -- so it inherits every one of those limiters automatically instead of
-bypassing them. Gated on lane-line confidence, disabled during lane changes, and user-tunable
-(enable, left/right offset, authority) via ``enable_lane_positioning_ang`` /
-``custom_path_offset_ang`` / ``lane_centering_strength_ang``.
+bypassing them. Blends toward lane-line center by confidence (same formula as
+``lateral_curv_ext``'s ``path_offset``) and falls back to the model's own predicted path -- not
+to zero -- when lines are missing/unreliable, so the user's left/right offset still applies on
+center-stripe-only roads. Disabled during lane changes, user-tunable (enable, offset, authority)
+via ``enable_lane_positioning_ang`` / ``custom_path_offset_ang`` / ``lane_centering_strength_ang``.
 
 **Human-turn override**: while the driver manually turns (same sustained-press + angle criteria
 as ``lateral_curv_ext``, via the shared ``HumanTurnDetector``), lateral is forced inactive (mode

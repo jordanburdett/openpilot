@@ -28,14 +28,14 @@ class _Position:
 
 
 class _Model:
-  def __init__(self, lane_lines, probs, stds, pos_x, pos_y):
+  def __init__(self, lane_lines, probs, pos_x, pos_y):
     self.laneLines = lane_lines
     self.laneLineProbs = probs
-    self.laneLineStds = stds
     self.position = _Position(pos_x, pos_y)
 
 
-def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9, 0.9), stds=(0.1, 0.1, 0.1, 0.1)):
+def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9, 0.9)):
+  """Confident lane lines (probability + typical width) centered at lane_center_y."""
   xs = list(range(0, 60, 2))
   half = width / 2.0
   lane_lines = [
@@ -46,7 +46,20 @@ def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9,
   ]
   pos_x = list(range(0, 60, 2))
   pos_y = [model_y] * len(pos_x)
-  return _Model(lane_lines, list(probs), list(stds), pos_x, pos_y)
+  return _Model(lane_lines, list(probs), pos_x, pos_y)
+
+
+def _no_lanelines_model(model_y=0.0):
+  """No lane lines detected at all (e.g. center-stripe-only road) -- zero probability on both
+  ego lines. laneLines arrays still present/well-formed (as modelV2 always publishes them),
+  just untrustworthy."""
+  return _good_model(model_y=model_y, probs=(0.0, 0.0, 0.0, 0.0))
+
+
+def _one_sided_model(model_y=0.0):
+  """Only the right lane line is confidently detected (e.g. curb on the left, no line there) --
+  the real-world case this blend exists for."""
+  return _good_model(model_y=model_y, probs=(0.9, 0.05, 0.9, 0.9))
 
 
 class TestLaneCenterTrim(unittest.TestCase):
@@ -116,21 +129,6 @@ class TestLaneCenterTrim(unittest.TestCase):
     # speed_factor at 12 m/s is 0.5 on the [9, 15] -> [0, 1] ramp
     self.assertAlmostEqual(self.trim.correction, 0.004 * 0.5, places=3)
 
-  def test_low_laneline_probability_no_correction(self):
-    model = _good_model(probs=(0.9, 0.3, 0.9, 0.9))
-    self._run(model, offset=5.0, iterations=50)
-    self.assertEqual(self.trim.correction, 0.0)
-
-  def test_high_laneline_std_no_correction(self):
-    model = _good_model(stds=(0.1, 0.5, 0.1, 0.1))
-    self._run(model, offset=5.0, iterations=50)
-    self.assertEqual(self.trim.correction, 0.0)
-
-  def test_implausible_lane_width_no_correction(self):
-    model = _good_model(width=1.5)  # below _MIN_LANE_WIDTH_M
-    self._run(model, offset=5.0, iterations=50)
-    self.assertEqual(self.trim.correction, 0.0)
-
   def test_added_to_kappa_cmd(self):
     model = _good_model()
     result = self._run(model, kappa_cmd=0.01, offset=5.0, gain=1.0, iterations=500)
@@ -148,6 +146,60 @@ class TestLaneCenterTrim(unittest.TestCase):
     self._run(model, offset=5.0, gain=1.0, iterations=200)
     self.assertNotEqual(self.trim.correction, 0.0)
     self._run(model, enabled=False, offset=5.0, gain=1.0, iterations=1)
+    self.assertEqual(self.trim.correction, 0.0)
+
+  # --- Model-position fallback / blend (the point of this class) ---
+
+  def test_no_lanelines_still_applies_offset(self):
+    # The scenario this exists for: center-stripe-only road, no lane line on the curbed side.
+    # Bad detection must NOT zero out the trim -- the offset bias should still apply, riding on
+    # the model's own path, exactly as if lane lines were centered and confident.
+    no_lines = _no_lanelines_model()
+    self._run(no_lines, offset=5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)  # same ceiling as good lanelines
+
+  def test_one_sided_laneline_still_applies_offset(self):
+    # Only one ego line confidently detected -- min(probL, probR, width_tol) is dragged down by
+    # the missing side, same as fully-missing lines.
+    one_sided = _one_sided_model()
+    self._run(one_sided, offset=5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+
+  def test_no_lanelines_zero_offset_no_correction(self):
+    # No lanelines AND no user bias: target collapses to the model's own path, so there's truly
+    # nothing to correct (not even a spurious pull toward a phantom lane center).
+    no_lines = _no_lanelines_model()
+    self._run(no_lines, offset=0.0, gain=1.0, iterations=50)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_confident_lanelines_pull_toward_laneline_center_even_with_zero_offset(self):
+    # Lane center is offset from the model's current path (model drifted left of true center);
+    # with full confidence and no user bias, the trim should still pull toward the laneline
+    # center -- this is the "full centering" behavior confidence unlocks.
+    model = _good_model(lane_center_y=2.0, model_y=0.0)  # model 2m left of true lane center
+    self._run(model, offset=0.0, gain=1.0, iterations=500)
+    self.assertGreater(self.trim.correction, 0.0)  # pulls right, toward center
+
+  def test_low_confidence_ignores_laneline_center_offset(self):
+    # Same lane-position error as above, but lines are unreliable -- with zero user bias the
+    # trim must NOT invent a correction from a laneline center it shouldn't trust.
+    unreliable = _good_model(lane_center_y=2.0, model_y=0.0, probs=(0.1, 0.1, 0.1, 0.1))
+    self._run(unreliable, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_implausible_width_falls_back_to_model_position(self):
+    # A width far outside anything the width-tolerance curve models still degrades confidence
+    # smoothly (not a crash / hard reject) and the offset-only fallback still applies.
+    weird_width = _good_model(width=15.0)
+    self._run(weird_width, offset=5.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+
+  def test_no_model_position_hard_resets(self):
+    # Unlike laneline-only failures, a missing/invalid model.position leaves no baseline to
+    # offset from at all -- this is the one case that still hard-resets to zero.
+    broken = _Model(lane_lines=[_XY([], []), _XY([], []), _XY([], []), _XY([], [])],
+                     probs=[0.9, 0.9, 0.9, 0.9], pos_x=[], pos_y=[])
+    self._run(broken, offset=5.0, gain=1.0, iterations=50)
     self.assertEqual(self.trim.correction, 0.0)
 
 
