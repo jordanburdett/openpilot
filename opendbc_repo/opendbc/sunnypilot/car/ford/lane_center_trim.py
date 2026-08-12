@@ -44,8 +44,10 @@ from numpy import interp
 # Laneline confidence blend -- ported verbatim from lateral_curv_ext.py's path_offset blend
 # (laneline_width_tolerance / min_laneline_confidence_bp) so both control schemes agree on what
 # "good lane lines" means.
-_WIDTH_TOLERANCE_BP = (3.75, 4.25)  # m
-_WIDTH_TOLERANCE_V = (0.81, 0.59)
+_WIDTH_TOLERANCE_BP = (2.4, 2.8, 3.75, 4.25)  # m - the floor is added from StarPilot
+_WIDTH_TOLERANCE_V = (0.0, 0.81, 0.81, 0.59) # Adds StarPilot's low edge
+_STD_TOLERANCE_BP = (0.3, 0.5) #0.3 is from StarPilot to define bad references
+_STD_TOLERANCE_V = (0.81, 0.0) #0.81 is a known good value and allows it to fade to zero as std increases
 _CONFIDENCE_BP = (0.6, 0.8)
 _CONFIDENCE_V = (0.0, 1.0)
 
@@ -61,6 +63,8 @@ _LOOKAHEAD_MAX_M = 35.0
 # Hard safety ceiling on the raw correction magnitude (1/m) -- fixed, not a "feel" knob, same
 # treatment as _PSCM_SAT_UNWIND_RATE / _soft_roc in lateral_angle_ext.py.
 _MAX_RAW_CORRECTION = 0.004
+
+_MAX_APPLIED_CORRECTION = 0.0015 #Stops a fake stuck steering rack from happening, because it is under the curvature error and stall gap
 
 # First-order smoothing time constant (s) -- avoids abrupt jumps in the trim.
 _SMOOTH_TAU_S = 0.4
@@ -91,6 +95,9 @@ class LaneCenterTrim:
     if speed_factor <= 0.0:
       self.reset()
       return kappa_cmd
+    if not (np.isfinite(offset) and np.isfinite(gain)): #stops not a number from getting to steering command; validation of number
+      self.reset()
+      return kappa_cmd
 
     valid, raw = self._raw_correction(model, v_ego, offset)
     if not valid:
@@ -101,6 +108,7 @@ class LaneCenterTrim:
       return kappa_cmd
 
     target = float(np.clip(raw, -_MAX_RAW_CORRECTION, _MAX_RAW_CORRECTION)) * float(np.clip(gain, 0.0, 1.0)) * speed_factor
+    target = float(np.clip(target, -_MAX_APPLIED_CORRECTION, _MAX_APPLIED_CORRECTION))
     alpha = 1.0 - np.exp(-0.05 / _SMOOTH_TAU_S)  # BluePilot lateral tick is 20 Hz (dt=0.05s)
     self._correction = float(alpha * target + (1.0 - alpha) * self._correction)
     return kappa_cmd + self._correction
@@ -141,7 +149,8 @@ class LaneCenterTrim:
     try:
       lane_lines = model.laneLines
       probs = model.laneLineProbs
-      if len(lane_lines) < 3 or len(probs) < 3:
+      stds = model.laneLineStds # a line could exist but this verifies how sure it is of where it is
+      if len(lane_lines) < 3 or len(probs) < 3 or len(stds) < 3:
         return 0.0, 0.0
 
       left_x = np.asarray(lane_lines[1].x, dtype=float)
@@ -166,7 +175,8 @@ class LaneCenterTrim:
       # probability via min() -- a single missing/unreliable line (e.g. no line on the curb
       # side, only a center stripe) drags confidence toward 0 on its own.
       width_tolerance = float(np.interp(width, _WIDTH_TOLERANCE_BP, _WIDTH_TOLERANCE_V))
-      confidence = min(float(probs[1]), float(probs[2]), width_tolerance)
+      std_tolerance = float(np.interp(max(float(stds[1]), float(stds[2])), _STD_TOLERANCE_BP, _STD_TOLERANCE_V)) #StarPilot stopped at 0.3, this fades the std through the table
+      confidence = min(float(probs[1]), float(probs[2]), width_tolerance, std_tolerance) #confidence is the weakest signal
       scale = float(np.clip(np.interp(confidence, _CONFIDENCE_BP, _CONFIDENCE_V), 0.0, 1.0))
       center_y = 0.5 * (left + right)
       return scale, center_y
