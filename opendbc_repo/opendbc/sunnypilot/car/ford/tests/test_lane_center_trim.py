@@ -203,6 +203,47 @@ class TestLaneCenterTrim(unittest.TestCase):
     self._run(broken, offset=5.0, gain=1.0, iterations=50)
     self.assertEqual(self.trim.correction, 0.0)
 
+  # --- Hardening: guards restored from the reference implementation ---
+
+  def test_narrow_lane_not_centered(self):
+    # Two confident stripes 1.5 m apart (double-stripe repaint, gore-point paint) must NOT be
+    # treated as a lane to center in: the width-tolerance low edge zeroes the laneline scale,
+    # so with no user bias there is no correction at all.
+    narrow = _good_model(lane_center_y=1.0, model_y=0.0, width=1.5)
+    self._run(narrow, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_high_std_ignores_laneline_center(self):
+    # High positional uncertainty (rain/glare: the model is sure lines exist but not where)
+    # must drag centering authority to zero even when probabilities are high.
+    blurry = _good_model(lane_center_y=2.0, model_y=0.0, stds=(0.1, 0.6, 0.1, 0.1))
+    self._run(blurry, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_nan_offset_is_inert(self):
+    # A corrupt float param must never reach the wire: NaN offset -> no correction, kappa_cmd
+    # passes through untouched.
+    result = self._run(_good_model(), kappa_cmd=0.01, offset=float("nan"), iterations=10)
+    self.assertEqual(self.trim.correction, 0.0)
+    self.assertEqual(result, 0.01)
+
+  def test_nan_gain_is_inert(self):
+    result = self._run(_good_model(), kappa_cmd=0.01, offset=0.3, gain=float("nan"), iterations=10)
+    self.assertEqual(self.trim.correction, 0.0)
+    self.assertEqual(result, 0.01)
+
+  def test_fallback_bias_is_position_independent_by_design(self):
+    # Pins the fallback semantics deliberately: with no lanelines, error == offset regardless of
+    # where the model path is (target moves with the baseline), i.e. the bias is a constant push,
+    # not a position controller. If this ever changes, it should change on purpose.
+    a = _no_lanelines_model(model_y=0.0)
+    b = _no_lanelines_model(model_y=-3.0)
+    self._run(a, offset=0.3, gain=1.0, iterations=500)
+    correction_a = self.trim.correction
+    self.trim.reset()
+    self._run(b, offset=0.3, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, correction_a, places=9)
+
 
 if __name__ == "__main__":
   unittest.main()
