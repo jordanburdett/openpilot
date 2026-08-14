@@ -28,13 +28,14 @@ class _Position:
 
 
 class _Model:
-  def __init__(self, lane_lines, probs, pos_x, pos_y):
+  def __init__(self, lane_lines, probs, stds, pos_x, pos_y):
     self.laneLines = lane_lines
     self.laneLineProbs = probs
+    self.laneLineStds = stds # add stds
     self.position = _Position(pos_x, pos_y)
 
 
-def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9, 0.9)):
+def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9, 0.9), stds=(0.1, 0.1, 0.1, 0.1)):
   """Confident lane lines (probability + typical width) centered at lane_center_y."""
   xs = list(range(0, 60, 2))
   half = width / 2.0
@@ -46,7 +47,7 @@ def _good_model(lane_center_y=0.0, model_y=0.0, width=3.7, probs=(0.9, 0.9, 0.9,
   ]
   pos_x = list(range(0, 60, 2))
   pos_y = [model_y] * len(pos_x)
-  return _Model(lane_lines, list(probs), pos_x, pos_y)
+  return _Model(lane_lines, list(probs), list(stds), pos_x, pos_y)
 
 
 def _no_lanelines_model(model_y=0.0):
@@ -106,17 +107,17 @@ class TestLaneCenterTrim(unittest.TestCase):
     # speed authority means the filtered correction converges to that ceiling.
     model = _good_model()
     self._run(model, offset=5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=4)
 
   def test_gain_scales_correction_linearly(self):
     model = _good_model()
-    self._run(model, offset=5.0, gain=0.5, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, 0.002, places=3)
+    self._run(model, offset=5.0, gain=0.25, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.001, places=4)
 
   def test_negative_offset_flips_sign(self):
     model = _good_model()
-    self._run(model, offset=-5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, -0.004, places=3)
+    self._run(model, offset=-5.0, gain=0.5, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, -0.002, places=4)
 
   def test_speed_ramp_zero_below_9ms(self):
     model = _good_model()
@@ -125,14 +126,14 @@ class TestLaneCenterTrim(unittest.TestCase):
 
   def test_speed_ramp_partial_between_9_and_15ms(self):
     model = _good_model()
-    self._run(model, offset=5.0, gain=1.0, v_ego=12.0, iterations=500)
+    self._run(model, offset=5.0, gain=0.5, v_ego=12.0, iterations=500)
     # speed_factor at 12 m/s is 0.5 on the [9, 15] -> [0, 1] ramp
-    self.assertAlmostEqual(self.trim.correction, 0.004 * 0.5, places=3)
+    self.assertAlmostEqual(self.trim.correction, 0.001, places=4)
 
   def test_added_to_kappa_cmd(self):
     model = _good_model()
     result = self._run(model, kappa_cmd=0.01, offset=5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(result, 0.01 + 0.004, places=3)
+    self.assertAlmostEqual(result, 0.01 + 0.004, places=4)
 
   def test_reset_zeroes_filter(self):
     model = _good_model()
@@ -156,14 +157,14 @@ class TestLaneCenterTrim(unittest.TestCase):
     # the model's own path, exactly as if lane lines were centered and confident.
     no_lines = _no_lanelines_model()
     self._run(no_lines, offset=5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)  # same ceiling as good lanelines
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=4)  # same ceiling as good lanelines
 
   def test_one_sided_laneline_still_applies_offset(self):
     # Only one ego line confidently detected -- min(probL, probR, width_tol) is dragged down by
     # the missing side, same as fully-missing lines.
     one_sided = _one_sided_model()
     self._run(one_sided, offset=5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=4)
 
   def test_no_lanelines_zero_offset_no_correction(self):
     # No lanelines AND no user bias: target collapses to the model's own path, so there's truly
@@ -192,15 +193,56 @@ class TestLaneCenterTrim(unittest.TestCase):
     # smoothly (not a crash / hard reject) and the offset-only fallback still applies.
     weird_width = _good_model(width=15.0)
     self._run(weird_width, offset=5.0, gain=1.0, iterations=500)
-    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=4)
 
   def test_no_model_position_hard_resets(self):
     # Unlike laneline-only failures, a missing/invalid model.position leaves no baseline to
     # offset from at all -- this is the one case that still hard-resets to zero.
     broken = _Model(lane_lines=[_XY([], []), _XY([], []), _XY([], []), _XY([], [])],
-                     probs=[0.9, 0.9, 0.9, 0.9], pos_x=[], pos_y=[])
+                     probs=[0.9, 0.9, 0.9, 0.9],stds=[0.1, 0.1, 0.1, 0.1], pos_x=[], pos_y=[])
     self._run(broken, offset=5.0, gain=1.0, iterations=50)
     self.assertEqual(self.trim.correction, 0.0)
+
+  # --- Hardening: guards restored from the reference implementation ---
+
+  def test_narrow_lane_not_centered(self):
+    # Two confident stripes 1.5 m apart (double-stripe repaint, gore-point paint) must NOT be
+    # treated as a lane to center in: the width-tolerance low edge zeroes the laneline scale,
+    # so with no user bias there is no correction at all.
+    narrow = _good_model(lane_center_y=1.0, model_y=0.0, width=1.5)
+    self._run(narrow, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_high_std_ignores_laneline_center(self):
+    # High positional uncertainty (rain/glare: the model is sure lines exist but not where)
+    # must drag centering authority to zero even when probabilities are high.
+    blurry = _good_model(lane_center_y=2.0, model_y=0.0, stds=(0.1, 0.6, 0.1, 0.1))
+    self._run(blurry, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.0, places=6)
+
+  def test_nan_offset_is_inert(self):
+    # A corrupt float param must never reach the wire: NaN offset -> no correction, kappa_cmd
+    # passes through untouched.
+    result = self._run(_good_model(), kappa_cmd=0.01, offset=float("nan"), iterations=10)
+    self.assertEqual(self.trim.correction, 0.0)
+    self.assertEqual(result, 0.01)
+
+  def test_nan_gain_is_inert(self):
+    result = self._run(_good_model(), kappa_cmd=0.01, offset=0.3, gain=float("nan"), iterations=10)
+    self.assertEqual(self.trim.correction, 0.0)
+    self.assertEqual(result, 0.01)
+
+  def test_fallback_bias_is_position_independent_by_design(self):
+    # Pins the fallback semantics deliberately: with no lanelines, error == offset regardless of
+    # where the model path is (target moves with the baseline), i.e. the bias is a constant push,
+    # not a position controller. If this ever changes, it should change on purpose.
+    a = _no_lanelines_model(model_y=0.0)
+    b = _no_lanelines_model(model_y=-3.0)
+    self._run(a, offset=0.3, gain=1.0, iterations=500)
+    correction_a = self.trim.correction
+    self.trim.reset()
+    self._run(b, offset=0.3, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, correction_a, places=9)
 
 
 if __name__ == "__main__":
