@@ -266,7 +266,7 @@ class TestAngleParams(unittest.TestCase):
     )
 
   def test_high_speed_dampening_is_clamped(self):
-    for raw_value, expected in ((b"0.50", 0.75), (b"1.50", 1.25)):
+    for raw_value, expected in ((b"0.10", 0.25), (b"1.50", 1.25)):
       with self.subTest(raw_value=raw_value):
         self.ext.update_angle_params(_FakeParams({"FordHighSpeedDampening_ang": raw_value}))
         self.assertAlmostEqual(self.ext.user_dampening_factor, expected)
