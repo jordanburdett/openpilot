@@ -67,6 +67,18 @@ _MAX_RAW_CORRECTION = 0.004
 # First-order smoothing time constant (s) -- avoids abrupt jumps in the trim.
 _SMOOTH_TAU_S = 0.4
 
+# Rate-of-change limit on the applied correction (1/m per 20 Hz tick), independent of the
+# smoothing filter above. The filter alone still has its *fastest* slew immediately after a
+# target jump -- its per-tick step is proportional to how far the target moved, so a large,
+# sudden confidence swing (e.g. crossing into/out of a too-wide merge lane, or lane lines
+# dropping out entirely while the model's own path and the laneline center disagree) can still
+# produce a big single-tick correction change even though it's technically "smoothed". This caps
+# that step explicitly, the same way path_angle's own soft ROC (lateral_angle_ext.py) and
+# curvature mode's LC_path_angle_ROC (lateral_curv_ext.py) rate-limit their outputs. At this
+# rate, crossing the full -_MAX_RAW_CORRECTION..+_MAX_RAW_CORRECTION span takes ~2.7s; a more
+# typical confidence-transition jump (a fraction of that) resolves proportionally faster.
+_CORRECTION_ROC_PER_TICK = 0.00015
+
 
 class LaneCenterTrim:
   def __init__(self):
@@ -84,6 +96,11 @@ class LaneCenterTrim:
     -- see module docstring.
     ``gain`` (0.0-1.0): user-tunable authority -- how much of the (already magnitude-clipped)
     raw correction is actually applied. 0 disables the trim's effect without disabling detection.
+
+    The applied correction is both exponentially smoothed (_SMOOTH_TAU_S) and rate-limited
+    (_CORRECTION_ROC_PER_TICK) -- see the constants above -- so a lane-line-confidence
+    transition (e.g. a merge lane too wide to be trusted, then narrowing back into range) eases
+    into its new target instead of snapping.
     """
     if not enabled or not lat_active or lane_change or model is None:
       self.reset()
@@ -107,7 +124,12 @@ class LaneCenterTrim:
 
     target = float(np.clip(raw, -_MAX_RAW_CORRECTION, _MAX_RAW_CORRECTION)) * float(np.clip(gain, 0.0, 1.0)) * speed_factor
     alpha = 1.0 - np.exp(-0.05 / _SMOOTH_TAU_S)  # BluePilot lateral tick is 20 Hz (dt=0.05s)
-    self._correction = float(alpha * target + (1.0 - alpha) * self._correction)
+    filtered = float(alpha * target + (1.0 - alpha) * self._correction)
+    # Rate-of-change limit -- see _CORRECTION_ROC_PER_TICK. Bounds the correction's own per-tick
+    # delta on top of the exponential filter above, so a lane-line-confidence transition can't
+    # snap the trim toward its new target in one or two frames.
+    self._correction = float(np.clip(filtered, self._correction - _CORRECTION_ROC_PER_TICK,
+                                      self._correction + _CORRECTION_ROC_PER_TICK))
     return kappa_cmd + self._correction
 
   @property

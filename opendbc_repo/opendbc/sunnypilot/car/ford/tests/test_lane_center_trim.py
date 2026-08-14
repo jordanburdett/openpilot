@@ -12,7 +12,7 @@ See the LICENSE.md file in the root directory for more details.
 
 import unittest
 
-from opendbc.sunnypilot.car.ford.lane_center_trim import LaneCenterTrim
+from opendbc.sunnypilot.car.ford.lane_center_trim import LaneCenterTrim, _CORRECTION_ROC_PER_TICK
 
 
 class _XY:
@@ -231,6 +231,35 @@ class TestLaneCenterTrim(unittest.TestCase):
     result = self._run(_good_model(), kappa_cmd=0.01, offset=0.3, gain=float("nan"), iterations=10)
     self.assertEqual(self.trim.correction, 0.0)
     self.assertEqual(result, 0.01)
+
+  # --- Rate-of-change limit: smooths confidence transitions (merge lanes, lines dropping out) ---
+
+  def test_correction_rate_limited_on_confidence_jump(self):
+    # Converge to a strong positive correction under confident, off-center lane lines.
+    centered_confident = _good_model(lane_center_y=2.0, model_y=0.0)
+    self._run(centered_confident, offset=0.0, gain=1.0, iterations=500)
+    before = self.trim.correction
+    self.assertAlmostEqual(before, 0.004, places=3)
+
+    # Lane lines vanish entirely in the very next frame (e.g. crossing into a too-wide merge
+    # lane) while a negative user offset now drives the fallback target the opposite way -- a
+    # large, instantaneous target swing (+0.004 -> -0.004 worth of target).
+    no_lines = _no_lanelines_model(model_y=0.0)
+    after = self.trim.update(0.0, no_lines, self.V_EGO, True, -5.0, 1.0, True, False)
+
+    # The correction must not have snapped toward the new target -- bounded to roughly one
+    # tick's worth of rate-of-change, regardless of how far the target actually moved.
+    self.assertLessEqual(abs(after - before), _CORRECTION_ROC_PER_TICK + 1e-9)
+
+  def test_correction_eventually_converges_despite_rate_limit(self):
+    # The rate limit paces the transition but must not prevent it from completing.
+    centered_confident = _good_model(lane_center_y=2.0, model_y=0.0)
+    self._run(centered_confident, offset=0.0, gain=1.0, iterations=500)
+    self.assertAlmostEqual(self.trim.correction, 0.004, places=3)
+
+    no_lines = _no_lanelines_model(model_y=0.0)
+    self._run(no_lines, offset=-5.0, gain=1.0, iterations=1000)
+    self.assertAlmostEqual(self.trim.correction, -0.004, places=3)
 
   def test_fallback_bias_is_position_independent_by_design(self):
     # Pins the fallback semantics deliberately: with no lanelines, error == offset regardless of
