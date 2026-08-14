@@ -575,7 +575,7 @@ class BluePilotLayout(Widget):
       param="custom_path_offset_ang",
       min_value=-0.5,
       max_value=0.5,
-      step=0.05,
+      step=0.01,
       enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning_ang"),
       icon="chffr_wheel.png"
     )

@@ -34,7 +34,7 @@ class LateralLayoutMici(NavScroller):
       "Enable Lane Positioning", "enable_lane_positioning_ang",
     )
     self.custom_path_offset_ang = BigParamFloatControl(
-      "In-Lane Offset", "custom_path_offset_ang", min=-0.5, max=0.5,
+      "In-Lane Offset", "custom_path_offset_ang", min=-0.5, max=0.5, step=0.01,
     )
     self.lane_centering_strength_ang = BigParamFloatControl(
       "Lane Centering Strength", "lane_centering_strength_ang", min=0.0, max=1.0, step=0.05,

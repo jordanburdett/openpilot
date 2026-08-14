@@ -316,7 +316,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // opendbc/sunnypilot/car/ford/lane_center_trim.py.
     {"enable_lane_positioning_ang", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"custom_path_offset_ang", {PERSISTENT | BACKUP, FLOAT, "0.0"}},
-    {"lane_centering_strength_ang", {PERSISTENT | BACKUP, FLOAT, "0.3"}},
+    {"lane_centering_strength_ang", {PERSISTENT | BACKUP, FLOAT, "0.5"}},
 
     {"disable_BP_lat_UI", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"disable_BP_long_UI", {PERSISTENT | BACKUP, BOOL, "0"}},
