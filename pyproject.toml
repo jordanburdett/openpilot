@@ -51,6 +51,10 @@ dependencies = [
 
   # ui
   "comma-deps-raylib",
+
+  # BluePilot: Portal / web-server QR dialogs. Declared on bp-dev; lost when
+  # pyproject.toml merged with upstream's reorganized dependency list.
+  "qrcode",
 ]
 
 [project.optional-dependencies]
