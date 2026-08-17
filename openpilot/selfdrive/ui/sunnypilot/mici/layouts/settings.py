@@ -28,7 +28,7 @@ if is_bluepilot():
   # BluePilot: upstream's SettingsBigButton derives from the stock BigButton. Before the
   # settings refactor this module aliased BigButton -> BigButtonBP, so every settings button
   # picked up BP styling. Re-derive it from BigButtonBP to keep that behavior.
-  class SettingsBigButton(BigButtonBP):  # noqa: F811
+  class SettingsBigButton(BigButtonBP):
     def _get_label_font_size(self):
       return 64
 
