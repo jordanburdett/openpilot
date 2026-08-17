@@ -1,6 +1,6 @@
 import json
 from typing import Any
-from openpilot.common.params import Params, ParamKeyFlag, ParamKeyType
+from openpilot.common.params import Params, ParamKeyFlag, ParamKeyType, UnknownKeyName
 from bluepilot.logger.bp_logger import debug, error
 
 # Define the path to the params.json file
@@ -41,6 +41,82 @@ def log_debug(message: str) -> None:
   if SHOW_DEBUG_OUTPUT:
     debug(message)
     print(message)
+
+
+# Keys openpilot does not know about. params_keys.h is a C++ header compiled into
+# libparams_c, so there is no way to register a key at runtime -- an undeclared key
+# makes every get/put raise UnknownKeyName. Remember the ones we hit so each is
+# reported once instead of once per read, and so we can summarize at init.
+_KEYS_HEADER = "openpilot/common/params_keys.h"
+_undeclared_keys: set[str] = set()
+
+
+def is_declared(params: Params, name: str) -> bool:
+  """True when params_keys.h declares `name`, so get/put on it will not raise.
+
+  Reports each undeclared key once; the caller is expected to fall back to the
+  default from params.json.
+  """
+  try:
+    params.check_key(name)
+    return True
+  except UnknownKeyName:
+    if name not in _undeclared_keys:
+      _undeclared_keys.add(name)
+      error(f"Param '{name}' is not declared in {_KEYS_HEADER}; using the params.json default. Add it there and rebuild to enable it.")
+    return False
+
+
+def _to_int(value: Any) -> int:
+  """int() that also accepts a float-looking string, e.g. an earlier '5.0' write."""
+  try:
+    return int(value)
+  except ValueError:
+    return int(float(value))
+
+
+def _coerce(caster: Any, value: Any, name: str, default: Any) -> Any:
+  """Parse a param value that Params stores as text, falling back to `default`."""
+  if value is None:
+    return default
+  if isinstance(value, bytes):
+    value = value.decode("utf-8", errors="replace")
+  if isinstance(value, str):
+    value = value.strip()
+    if not value:
+      return default
+  try:
+    return caster(value)
+  except (TypeError, ValueError):
+    error(f"Param '{name}' holds {value!r}, which is not a valid number. Using default: {default}")
+    return default
+
+
+def get_int(params: Params, name: str, default: int = 0) -> int:
+  """Read an int param. Params has no get_int; ints are stored as text and parsed here."""
+  return _coerce(_to_int, params.get(name), name, default)
+
+
+def get_float(params: Params, name: str, default: float = 0.0) -> float:
+  """Read a float param. Params has no get_float; floats are stored as text and parsed here."""
+  return _coerce(float, params.get(name), name, default)
+
+
+def put_number(params: Params, name: str, value: int | float) -> None:
+  """Write an int/float param, matching however params_keys.h declares the key.
+
+  Params.put refuses a type that disagrees with the key's declared ParamKeyType,
+  so a numeric value bound for a STRING key has to be stringified first.
+  """
+  key_type = params.get_type(name)
+  if key_type == ParamKeyType.INT:
+    params.put(name, int(value))
+  elif key_type == ParamKeyType.FLOAT:
+    params.put(name, float(value))
+  elif key_type == ParamKeyType.BOOL:
+    params.put_bool(name, bool(value))
+  else:
+    params.put(name, str(value))
 
 
 def load_params_json() -> dict[str, Any]:
@@ -88,13 +164,10 @@ def preprocess_params_data() -> None:
 
 
 def check_param_exists(params: Params, key: str) -> bool:
-  try:
-    exists = params.check_key(key)
-    log_debug(f"Checked if parameter {key} exists: {exists}")
-    return exists
-  except Exception as e:
-    error(f"Error checking if parameter {key} exists: {e}", True)
-    return False
+  """True when the key is usable, i.e. declared in params_keys.h."""
+  exists = is_declared(params, key)
+  log_debug(f"Checked if parameter {key} exists: {exists}")
+  return exists
 
 
 def get_param_value(params: Params, param_name: str, param_type: str, default_value: Any) -> Any:
@@ -110,11 +183,11 @@ def get_param_value(params: Params, param_name: str, param_type: str, default_va
         log_debug(f" - Retrieved bool parameter {param_name}: {result}")
         return result
       elif param_type == "int":
-        result = params.get_int(param_name)
+        result = get_int(params, param_name, default_value if default_value is not None else 0)
         log_debug(f" - Retrieved int parameter {param_name}: {result}")
         return result
       elif param_type == "float":
-        result = params.get_float(param_name)
+        result = get_float(params, param_name, default_value if default_value is not None else 0.0)
         log_debug(f" - Retrieved float parameter {param_name}: {result}")
         return result
       else:
@@ -126,10 +199,13 @@ def get_param_value(params: Params, param_name: str, param_type: str, default_va
         log_debug(f" - Retrieved string parameter {param_name}: {value}")
         return value
     except (ValueError, TypeError) as e:
-      error(f"Could not convert {param_name} value to {param_type}. Using default: {default_value}. Error: {e}", True)
+      error(f"Could not convert {param_name} value to {param_type}. Using default: {default_value}. Error: {e}", console_output=True)
       return default_value
+  except UnknownKeyName:
+    log_debug(f"Parameter {param_name} is not declared in params_keys.h, using default value: {default_value}")
+    return default_value
   except Exception as e:
-    error(f"Error getting parameter {param_name}: {e}. Using default: {default_value}", True)
+    error(f"Error getting parameter {param_name}: {e}. Using default: {default_value}", console_output=True)
     return default_value
 
 
@@ -140,63 +216,55 @@ def initialize_custom_params(params: Params) -> None:
   load_params_json()
   preprocess_params_data()
 
-  # Register and initialize parameters
+  # Initialize parameters. Note that we cannot *create* any: params_keys.h is compiled
+  # into libparams_c, so the set of valid keys is fixed at build time and the "flags"
+  # entries in params.json are documentation only.
+  skipped: list[str] = []
+  skipped_defaults: list[str] = []
   for param in _params_data.get("params", []):
     name = param["name"]
     param_type = param["type"]
     default_value = param["default"]
-    flags = 0
-    flag_list = []
 
-    # Step 1: Register the parameter with the new system
-    for flag_str in param.get("flags", []):
-      flag_value = flag_mapping.get(flag_str)
-      if flag_value is not None:
-        flags |= flag_value
-        flag_list.append(flag_str)
+    flag_list = [flag_str for flag_str in param.get("flags", []) if flag_str in flag_mapping]
+    log_debug(f"Initializing {name}, params.json declares flags: {flag_list}")
 
-    log_debug(f"Registering {name} with flags: {flag_list} (value: {flags:#x})")
-    try:
-      params.register_key(name, flags)
-    except Exception as e:
-      error(f"Error registering {name}: {e}", True)
-      continue  # Skip to next param if registration fails
+    # Step 1: Skip anything openpilot was not built with; every get/put would raise.
+    if not is_declared(params, name):
+      skipped.append(name)
+      continue
 
-    # Step 2: Check if parameter exists and its current value
+    # Step 2: Check the parameter's current value. Params.get already returns the type
+    # params_keys.h declares, and None when nothing is stored yet -- which is exactly the
+    # "unset" signal step 4 needs, so don't substitute a default here.
     current_value = None
     try:
-      if check_param_exists(params, name):
-        # Use type-specific getters for better type safety
-        if param_type == "bool":
-          current_value = params.get_bool(name)
-        elif param_type == "int":
-          current_value = params.get_int(name)
-        elif param_type == "float":
-          current_value = params.get_float(name)
-        else:
-          current_value = params.get(name)
-        log_debug(f"Param {name} exists with value: '{current_value}'")
-      else:
-        log_debug(f"Param {name} does not exist yet")
+      current_value = params.get(name)
+      log_debug(f"Param {name} currently holds: {current_value!r}")
     except Exception as e:
-      error(f"Error checking existence of {name}: {e}", True)
+      error(f"Error reading current value of {name}: {e}", console_output=True)
 
     # Step 3: Handle default parameter creation if specified
     if param.get("create_default", False):
       default_param_name = f"{name}_default"
-      log_debug(f"Creating _default version of {name} with default value: {default_value}")
-      try:
-        params.register_key(default_param_name, 0)
-        default_value_str = (
-          "1" if param_type == "bool" and default_value else "0" if param_type == "bool" else str(default_value) if default_value is not None else ""
-        )
-        if default_value_str:
-          params.put(default_param_name, default_value_str)
-          log_debug(f"Set {default_param_name} to: '{default_value_str}'")
-        else:
-          log_debug(f"No value set for {default_param_name} (default is empty)")
-      except Exception as e:
-        error(f"Error creating/setting {default_param_name}: {e}", True)
+      if is_declared(params, default_param_name):
+        log_debug(f"Creating _default version of {name} with default value: {default_value}")
+        try:
+          if param_type == "bool":
+            params.put_bool(default_param_name, bool(default_value))
+            log_debug(f"Set {default_param_name} to: {bool(default_value)}")
+          elif default_value is None or default_value == "":
+            log_debug(f"No value set for {default_param_name} (default is empty)")
+          elif param_type in ("int", "float"):
+            put_number(params, default_param_name, default_value)
+            log_debug(f"Set {default_param_name} to: '{default_value}'")
+          else:
+            params.put(default_param_name, str(default_value))
+            log_debug(f"Set {default_param_name} to: '{default_value}'")
+        except Exception as e:
+          error(f"Error creating/setting {default_param_name}: {e}", console_output=True)
+      else:
+        skipped_defaults.append(default_param_name)
 
     # Step 4: Set the parameter value if it doesn't exist or is empty
     if current_value in (None, ""):
@@ -206,10 +274,10 @@ def initialize_custom_params(params: Params) -> None:
           params.put_bool(name, bool(default_value))
           log_debug(f"Set {name} to bool default value: {bool(default_value)}")
         elif param_type == "int":
-          params.put_int(name, int(default_value) if default_value is not None else 0)
+          put_number(params, name, int(default_value) if default_value is not None else 0)
           log_debug(f"Set {name} to int default value: {int(default_value) if default_value is not None else 0}")
         elif param_type == "float":
-          params.put_float(name, float(default_value) if default_value is not None else 0.0)
+          put_number(params, name, float(default_value) if default_value is not None else 0.0)
           log_debug(f"Set {name} to float default value: {float(default_value) if default_value is not None else 0.0}")
         else:
           value = str(default_value) if default_value is not None else ""
@@ -219,9 +287,17 @@ def initialize_custom_params(params: Params) -> None:
           else:
             log_debug(f"No value set for {name} (default is empty)")
       except Exception as e:
-        error(f"Error setting {name} to default value: {e}", True)
+        error(f"Error setting {name} to default value: {e}", console_output=True)
     else:
       log_debug(f"Retaining existing value for {name}: '{current_value}'")
+
+  if skipped:
+    total = len({p["name"] for p in _params_data.get("params", [])})
+    missing = ", ".join(sorted(set(skipped)))
+    error(f"{len(set(skipped))} of {total} params.json keys are missing from {_KEYS_HEADER} and were skipped: {missing}")
+  if skipped_defaults:
+    missing = ", ".join(sorted(set(skipped_defaults)))
+    error(f"{len(set(skipped_defaults))} '_default' companion keys are missing from {_KEYS_HEADER} and were skipped: {missing}")
 
   log_debug("Custom parameters initialization complete")
 
@@ -292,7 +368,7 @@ def apply_custom_params(obj: Any, prop_key: str, component_type: str) -> None:
       setattr(obj, attr_name, value)
       params_applied += 1
     except Exception as e:
-      error(f"Error applying parameter {param_name}: {e}", True)
+      error(f"Error applying parameter {param_name}: {e}", console_output=True)
 
   # Summary of changes
   if params_changed > 0:

@@ -12,7 +12,14 @@ import subprocess
 import shutil
 import threading
 
+from bluepilot.backend.params.params_manager import UnknownKeyName
+
 logger = logging.getLogger(__name__)
+
+# BPPortalCrashCount / BPPortalLastCrash are not declared in openpilot/common/params_keys.h,
+# so every get/put on them raises UnknownKeyName. Crash counts are diagnostics only and
+# never gate startup, so treat the keys as absent rather than failing the caller.
+_CRASH_PARAM_ERRORS = (AttributeError, TypeError, UnknownKeyName)
 
 # Global flags to track restart state
 _restart_pending = False      # True when dependencies installed and restart needed
@@ -34,7 +41,7 @@ def record_crash(params):
         try:
             crash_count_str = params.get("BPPortalCrashCount")
             crash_count = int(crash_count_str) if crash_count_str else 0
-        except (AttributeError, TypeError):
+        except _CRASH_PARAM_ERRORS:
             # Mock params or other error
             crash_count = 0
 
@@ -42,7 +49,7 @@ def record_crash(params):
         try:
             last_crash_str = params.get("BPPortalLastCrash")
             last_crash = int(last_crash_str) if last_crash_str else 0
-        except (AttributeError, TypeError):
+        except _CRASH_PARAM_ERRORS:
             # Mock params or other error
             last_crash = 0
 
@@ -57,8 +64,8 @@ def record_crash(params):
         try:
             params.put("BPPortalCrashCount", min(crash_count, 10))  # Cap at 10
             params.put("BPPortalLastCrash", current_time)
-        except AttributeError:
-            # Mock params object doesn't have put methods, skip
+        except _CRASH_PARAM_ERRORS:
+            # Mock params object, or key absent from params_keys.h; skip
             pass
 
         logger.warning(f"Server error occurred ({crash_count} recent errors) - continuing operation")
@@ -82,14 +89,14 @@ def check_and_handle_crashes(params):
         try:
             crash_count_str = params.get("BPPortalCrashCount")
             crash_count = int(crash_count_str) if crash_count_str else 0
-        except (AttributeError, TypeError):
+        except _CRASH_PARAM_ERRORS:
             crash_count = 0
 
         # Get last crash time for monitoring only
         try:
             last_crash_str = params.get("BPPortalLastCrash")
             last_crash = int(last_crash_str) if last_crash_str else 0
-        except (AttributeError, TypeError):
+        except _CRASH_PARAM_ERRORS:
             last_crash = 0
 
         current_time = int(time.monotonic())
@@ -104,8 +111,8 @@ def check_and_handle_crashes(params):
             try:
                 params.put("BPPortalCrashCount", 0)
                 params.put("BPPortalLastCrash", 0)
-            except AttributeError:
-                # Mock params object doesn't have put methods, skip
+            except _CRASH_PARAM_ERRORS:
+                # Mock params object, or key absent from params_keys.h; skip
                 pass
 
         return True  # Always allow server to start

@@ -84,9 +84,8 @@ def save_processing_state(state):
 def is_device_idle():
     """Check if device is idle (screen off + not driving)"""
     try:
-        # Check if onroad (driving)
-        onroad = params.get_bool("IsOnroad")
-        if onroad:
+        # Check if onroad (driving). openpilot declares IsOffroad, not IsOnroad.
+        if not params.get_bool("IsOffroad"):
             return False
 
         # Check screen state (awake param)

@@ -184,7 +184,7 @@ from bluepilot.backend.handlers.log_downloads import (
 )
 
 # Params - import from params_manager to get fallback support
-from bluepilot.backend.params.params_manager import Params
+from bluepilot.backend.params.params_manager import Params, UnknownKeyName
 params = Params()
 
 
@@ -3378,8 +3378,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                 }, 500)
                         else:
                             # Return current state
-                            current_username = params.get('GithubUsername', encoding='utf-8')
-                            current_keys = params.get('GithubSshKeys', encoding='utf-8')
+                            # Both keys are declared STRING, so Params.get already returns str
+                            # (there is no `encoding` argument).
+                            current_username = params.get('GithubUsername')
+                            current_keys = params.get('GithubSshKeys')
                             has_keys = bool(current_keys)
 
                             self.send_json_response({
@@ -3399,11 +3401,22 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             }, 400)
                             return
 
-                        # Empty string means remove password
-                        if password == '':
-                            params.remove('CopypartyPassword')
-                        else:
-                            params.put('CopypartyPassword', password)
+                        # CopypartyPassword is not declared in openpilot/common/params_keys.h,
+                        # so these calls raise UnknownKeyName on a stock build. Report that
+                        # instead of letting it surface as an unhandled 500.
+                        try:
+                            # Empty string means remove password
+                            if password == '':
+                                params.remove('CopypartyPassword')
+                            else:
+                                params.put('CopypartyPassword', password)
+                        except UnknownKeyName:
+                            logger.warning("CopypartyPassword is not declared in params_keys.h; cannot store the password")
+                            self.send_json_response({
+                                'success': False,
+                                'error': 'CopypartyPassword is not supported by this build (key missing from params_keys.h)'
+                            }, 501)
+                            return
 
                         self.send_json_response({
                             'success': True,

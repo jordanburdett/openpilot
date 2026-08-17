@@ -472,7 +472,9 @@ def extract_fingerprint_from_segment(segment_path):
 
         # Check if this is the current route by checking Params
         params = Params()
-        current_route = params.get("CurrentRoute", encoding='utf-8')
+        # CurrentRoute is declared STRING, so Params.get already returns str
+        # (there is no `encoding` argument).
+        current_route = params.get("CurrentRoute")
 
         # If this segment is part of the current route, we can use cached CarParams
         if current_route and current_route in segment_path:

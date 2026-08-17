@@ -11,7 +11,7 @@ from bluepilot.backend.utils.params_fallback import get_params_with_defaults
 logger = logging.getLogger(__name__)
 
 params = get_params_with_defaults({
-    "IsOnRoad": False,
+    "IsOffroad": True,
     "BPPortalPort": "8088",
     "EnableWebRoutesServer": True,
 })
@@ -19,9 +19,11 @@ params = get_params_with_defaults({
 
 def is_onroad():
     """Check if vehicle is currently driving"""
+    # openpilot declares IsOffroad, not IsOnRoad -- the latter raises UnknownKeyName,
+    # which used to make this return False unconditionally.
     try:
-        return params.get_bool("IsOnRoad")
-    except:
+        return not params.get_bool("IsOffroad")
+    except Exception:
         return False
 
 

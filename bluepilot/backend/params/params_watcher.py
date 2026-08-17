@@ -111,17 +111,25 @@ class ParamsWatcher:
             logger.error(f"Error updating params cache: {e}")
 
     def _read_param_value(self, key: str) -> Any:
-        """Read a param value using the Params instance"""
+        """Read a param value using the Params instance.
+
+        Params.get has no `encoding` argument; it decodes according to the key's
+        declared ParamKeyType, so BOOL/INT/FLOAT/JSON keys already come back typed
+        and only STRING/BYTES keys need handling here.
+        """
         try:
             # Try boolean first
-            if key.endswith("Enabled") or key.endswith("Toggle") or key in ["IsOnRoad", "IsOffroad", "Passive"]:
+            if key.endswith("Enabled") or key.endswith("Toggle") or key in ["IsOffroad", "Passive"]:
                 return self.params.get_bool(key)
 
-            # Try getting as string
-            value = self.params.get(key, encoding='utf-8')
+            value = self.params.get(key)
 
-            if value is None or value == b'':
+            if value is None or value == b'' or value == '':
                 return None
+
+            # Already a non-string type (bool/int/float/dict/datetime): pass it through.
+            if not isinstance(value, (str, bytes)):
+                return value
 
             if isinstance(value, bytes):
                 value = value.decode('utf-8', errors='replace')
@@ -138,6 +146,8 @@ class ParamsWatcher:
             return value
 
         except Exception:
+            # Includes UnknownKeyName for files in the params dir that this build of
+            # openpilot does not declare in params_keys.h.
             return None
 
     def _check_for_changes(self):

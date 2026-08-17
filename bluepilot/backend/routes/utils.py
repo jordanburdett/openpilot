@@ -23,11 +23,10 @@ from bluepilot.backend.routes.processing import (
     get_route_drive_stats_cached_only,
     get_route_fingerprint,
 )
-from bluepilot.backend.storage import (
-    get_cached_deletion_data,
-    calculate_route_deletion_risk,
-    check_route_preserve_status,
-)
+# Storage preservation utilities are imported lazily inside build_route_metadata():
+# bluepilot.backend.storage -> storage.preservation -> bluepilot.backend.routes ->
+# routes.utils, so importing them here makes `import bluepilot.backend.storage`
+# fail on a partially initialized module.
 from bluepilot.backend.video.metadata import get_video_files
 
 
@@ -43,6 +42,13 @@ def build_route_metadata(route_base: str, segments: List[Dict[str, Any]], params
     Returns:
         dict payload ready for JSON response
     """
+    # Deferred to break the routes <-> storage import cycle (see note at top of module).
+    from bluepilot.backend.storage import (
+        get_cached_deletion_data,
+        calculate_route_deletion_risk,
+        check_route_preserve_status,
+    )
+
     # Parse datetime
     route_dt = parse_route_datetime(route_base)
     if route_dt is None and segments:

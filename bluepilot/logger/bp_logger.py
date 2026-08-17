@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any
 from pathlib import Path
 
-from openpilot.common.params import Params
+from openpilot.common.params import Params, UnknownKeyName
 from openpilot.common.swaglog import cloudlog
 # from openpilot.common.hardware.hw import Paths
 
@@ -35,6 +35,32 @@ _running = False
 _worker_thread = None
 # Lock for thread safety
 _lock = threading.Lock()
+
+# Params handle reused across log calls, plus a latch for when the debug-log key is
+# unavailable. FordPrefEnableDebugLogs is not declared in openpilot/common/params_keys.h,
+# so get_bool raises UnknownKeyName; without the latch every log call would pay for a
+# failed lookup.
+DEBUG_LOG_PARAM = "FordPrefEnableDebugLogs"
+_params: Params | None = None
+_debug_param_available = True
+
+
+def _debug_logs_enabled() -> bool:
+  """Whether BluePilot should mirror messages to cloudlog. False if the param is missing."""
+  global _params, _debug_param_available
+
+  if not _debug_param_available:
+    return False
+  try:
+    if _params is None:
+      _params = Params()
+    return _params.get_bool(DEBUG_LOG_PARAM)
+  except UnknownKeyName:
+    # Key is not compiled into params_keys.h; stop asking.
+    _debug_param_available = False
+    return False
+  except Exception:
+    return False
 
 
 def get_default_log_dir():
@@ -271,19 +297,8 @@ def log(level: LogLevel, message: str, *args, console_output: bool = False) -> N
       except Exception as e:
         print(f"Error adding message to queue: {e}")
 
-    # Try to check debug_enabled flag safely
-    debug_enabled = False
-    try:
-      params = Params()
-      try:
-        debug_enabled = params.check_key("FordPrefEnableDebugLogs") and params.get_bool("FordPrefEnableDebugLogs", default=False)
-      except (KeyError, ValueError, TypeError):
-        debug_enabled = False
-    except (KeyError, ValueError, TypeError):
-      pass
-
     # If debug mode is enabled via params, also log to cloudlog
-    if debug_enabled:
+    if _debug_logs_enabled():
       if level == LogLevel.DEBUG:
         cloudlog.debug(message, *args)
       elif level == LogLevel.INFO:

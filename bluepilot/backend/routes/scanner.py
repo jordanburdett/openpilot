@@ -48,12 +48,10 @@ from bluepilot.backend.routes import (
     get_route_drive_stats_cached_only,
 )
 
-# Import storage preservation utilities
-from bluepilot.backend.storage import (
-    get_cached_deletion_data,
-    calculate_route_deletion_risk,
-    check_route_preserve_status,
-)
+# Storage preservation utilities are imported lazily inside scan_routes():
+# bluepilot.backend.storage -> storage.preservation -> bluepilot.backend.routes ->
+# routes.scanner, so importing them here makes `import bluepilot.backend.storage`
+# fail on a partially initialized module.
 
 # Import video metadata utilities
 from bluepilot.backend.video import (
@@ -101,6 +99,13 @@ def scan_routes():
     if not os.path.exists(ROUTES_DIR):
         logger.warning(f"Routes directory not found: {ROUTES_DIR}")
         return []
+
+    # Deferred to break the routes <-> storage import cycle (see note at top of module).
+    from bluepilot.backend.storage import (
+        get_cached_deletion_data,
+        calculate_route_deletion_risk,
+        check_route_preserve_status,
+    )
 
     # Calculate deletion queue data (cached)
     deletion_data = get_cached_deletion_data()
