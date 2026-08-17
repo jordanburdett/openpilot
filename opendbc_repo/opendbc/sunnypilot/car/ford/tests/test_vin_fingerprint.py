@@ -4,6 +4,8 @@ VINs are real ones from comma's public car segments database (tools/car_porting/
 with the serial digits already redacted to X -- X is a legal VIN character, so they still parse.
 """
 
+import unittest
+
 from opendbc.car.ford.values import CAR, match_vin_to_car
 
 # (vin, expected platform or None)
@@ -52,24 +54,24 @@ CASES = [
 ]
 
 
-def test_match_vin_to_car():
-  for vin, expected in CASES:
-    matches = match_vin_to_car(vin)
-    if expected is None:
-      assert matches == set(), f'{vin}: expected no match, got {matches}'
-    else:
-      assert matches == {str(expected)}, f'{vin}: expected {expected}, got {matches}'
+class TestVinFingerprint(unittest.TestCase):
+  def test_match_vin_to_car(self):
+    for vin, expected in CASES:
+      with self.subTest(vin=vin):
+        matches = match_vin_to_car(vin)
+        if expected is None:
+          assert matches == set(), f'{vin}: expected no match, got {matches}'
+        else:
+          assert matches == {str(expected)}, f'{vin}: expected {expected}, got {matches}'
 
-
-def test_no_platform_matches_two_ways():
-  """Any VIN the fallback accepts must resolve to exactly one platform, otherwise
-  fingerprint() discards it anyway and the tables are wrong."""
-  for vin, expected in CASES:
-    if expected is not None:
-      assert len(match_vin_to_car(vin)) == 1, vin
+  def test_no_platform_matches_two_ways(self):
+    """Any VIN the fallback accepts must resolve to exactly one platform, otherwise
+    fingerprint() discards it anyway and the tables are wrong."""
+    for vin, expected in CASES:
+      if expected is not None:
+        with self.subTest(vin=vin):
+          assert len(match_vin_to_car(vin)) == 1, vin
 
 
 if __name__ == '__main__':
-  test_match_vin_to_car()
-  test_no_platform_matches_two_ways()
-  print('ok')
+  unittest.main()
