@@ -112,8 +112,8 @@ class LateralCurvExt:
 
   def __init__(self, CP, CP_SP):
     # SubMaster for model data, live parameters, and selfdrive state
-    # liveDelay is consumed by LateralAngleExt (variable lookup time); harmless for curvature mode.
-    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState', 'liveDelay'])
+    # lateralDelay is consumed by LateralAngleExt (variable lookup time); harmless for curvature mode.
+    self.sm = messaging.SubMaster(['modelV2', 'liveParameters', 'selfdriveState', 'radarState', 'lateralDelay'])
     self.VM = VehicleModel(CP)
     self.model = None
     self.lp = None

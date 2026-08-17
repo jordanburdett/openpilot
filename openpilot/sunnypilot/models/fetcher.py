@@ -6,12 +6,14 @@ See the LICENSE.md file in the root directory for more details.
 """
 
 import time
-
+import os
 import requests
 from requests.exceptions import (SSLError, RequestException, HTTPError)
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
+from openpilot.common.hardware.hw import Paths
 from openpilot.sunnypilot.models.helpers import is_bundle_version_compatible
+from openpilot.selfdrive.modeld.helpers import usbgpu_present
 
 from openpilot.cereal import custom
 
@@ -27,10 +29,34 @@ class ModelParser:
     return download_uri
 
   @staticmethod
+  def _parse_chunk(chunk_data) -> custom.ModelManagerSP.Chunk:
+    chunk = custom.ModelManagerSP.Chunk()
+    chunk.fileName = chunk_data.get("file_name")
+    chunk.sha256 = chunk_data.get("sha256")
+    return chunk
+
+  @staticmethod
   def _parse_artifact(artifact_data) -> custom.ModelManagerSP.Artifact:
     artifact = custom.ModelManagerSP.Artifact()
     artifact.fileName = artifact_data.get("file_name")
     artifact.downloadUri = ModelParser._parse_download_uri(artifact_data.get("download_uri", {}))
+
+    if "chunks" in artifact_data:
+      artifact.chunks = [ModelParser._parse_chunk(chunk_data) for chunk_data in artifact_data["chunks"]]
+
+      try:
+        model_dir = Paths.model_root()
+        os.makedirs(model_dir, exist_ok=True)
+        manifest_path = os.path.join(model_dir, f"{artifact.fileName}.chunkmanifest")
+        num_chunks = str(len(artifact.chunks))
+
+        if not os.path.exists(manifest_path) or open(manifest_path).read().strip() != num_chunks:
+          with open(manifest_path, "w") as f:
+            f.write(num_chunks)
+          cloudlog.info(f"Wrote chunk manifest for {artifact.fileName}: {num_chunks} chunks")
+      except Exception as e:
+        cloudlog.warning(f"Failed to write chunk manifest for {artifact.fileName}: {e}")
+
     return artifact
 
   @staticmethod
@@ -39,8 +65,6 @@ class ModelParser:
 
     model.type = model_data.get("type")
     model.artifact = ModelParser._parse_artifact(model_data.get("artifact", {}))
-    if metadata := model_data.get("metadata"):
-      model.metadata = ModelParser._parse_artifact(metadata)
     return model
 
   @staticmethod
@@ -80,11 +104,11 @@ class ModelParser:
 class ModelCache:
   """Handles caching of model data to avoid frequent remote fetches"""
 
-  def __init__(self, params: Params, cache_timeout: int = int(3600 * 1e9)):
+  def __init__(self, params: Params, cache_timeout: int = int(3600 * 1e9), suffix: str = ""):
     self.params = params
     self.cache_timeout = cache_timeout
-    self._LAST_SYNC_KEY = "ModelManager_LastSyncTime"
-    self._CACHE_KEY = "ModelManager_ModelsCache"
+    self._LAST_SYNC_KEY = f"ModelManager_LastSyncTime{suffix}"
+    self._CACHE_KEY = f"ModelManager_ModelsCache{suffix}"
 
   def _is_expired(self) -> bool:
     """Checks if the cache has expired"""
@@ -116,24 +140,37 @@ class ModelCache:
 
 class ModelFetcher:
   """Handles fetching and caching of model data from remote source"""
-  MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v17.json"
+  MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v19.json"
+  MODEL_URL_USBGPU = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_usbgpu_v19.json"
 
   def __init__(self, params: Params):
     self.params = params
-    self.model_cache = ModelCache(params)
     self.model_parser = ModelParser()
+    self._is_usbgpu: bool | None = None
+    self.model_cache = ModelCache(params)
+    self.model_url = self.MODEL_URL
+    self._update_model_source()
+
+  def _update_model_source(self) -> None:
+    """Updates what json to use based on usbgpu availability"""
+    is_usbgpu = usbgpu_present()
+    if is_usbgpu != self._is_usbgpu:
+      self._is_usbgpu = is_usbgpu
+      self.model_cache = ModelCache(self.params, suffix="_USBGPU" if is_usbgpu else "")
+      self.model_url = self.MODEL_URL_USBGPU if is_usbgpu else self.MODEL_URL
+      self.params.put("ModelManager_ActiveJson", self.model_url, block=True)
 
   def _fetch_and_cache_models(self) -> list[custom.ModelManagerSP.ModelBundle] | None:
     """Fetches fresh model data from remote and updates cache.
     Returns None on transport errors. Raises on 404 and other fatal HTTP errors.
     """
     try:
-      response = requests.get(self.MODEL_URL, timeout=10)
+      response = requests.get(self.model_url, timeout=10)
 
       # Explicitly handle 404 differently
       if response.status_code == 404:
-        cloudlog.error(f"Models URL returned 404 Not Found: {self.MODEL_URL}")
-        raise HTTPError(f"404 Not Found: {self.MODEL_URL}", response=response)
+        cloudlog.error(f"Models URL returned 404 Not Found: {self.model_url}")
+        raise HTTPError(f"404 Not Found: {self.model_url}", response=response)
 
       # Raise for any other 4xx/5xx
       response.raise_for_status()
@@ -156,6 +193,7 @@ class ModelFetcher:
 
   def get_available_bundles(self) -> list[custom.ModelManagerSP.ModelBundle]:
     """Gets the list of available models, with smart cache handling"""
+    self._update_model_source()
     cached_data, is_expired = self.model_cache.get()
 
     if cached_data and not is_expired:
@@ -179,9 +217,7 @@ if __name__ == "__main__":
   for bundle in bundles:
     for model in bundle.models:
       model_overrides = {override.key: override.value for override in bundle.overrides}
-      # Print model details
       print(f"Bundle: {bundle.internalName}, Type: {model.type}, Status: {bundle.status}, Overrides: {model_overrides}")
-      # Print artifact details
       print(f"Artifact: {model.artifact.fileName}, Download URI: {model.artifact.downloadUri.uri}")
-      # Print metadata details
-      print(f"Metadata: {model.metadata.fileName}, Download URI: {model.metadata.downloadUri.uri}")
+      if model.artifact.chunks:
+        print(f"Contains {len(model.artifact.chunks)} chunks.")
