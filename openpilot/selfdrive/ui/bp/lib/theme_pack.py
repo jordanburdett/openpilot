@@ -25,7 +25,7 @@ from openpilot.common.params import Params
 PARAM_KEY = "BPThemePack"
 AUTO_PARAM_KEY = "BPThemeAutoSeasonal"
 RAD_RACER = "rad_racer"  # param value: the built-in 8-Bit Racer code theme (not a pack on disk)
-BUNDLED_DIR = os.path.join(BASEDIR, "selfdrive", "assets", "bp_themes")
+BUNDLED_DIR = os.path.join(BASEDIR, "openpilot", "selfdrive", "assets", "bp_themes")
 USER_DIR = "/data/bp_themes"
 _PARAM_POLL_S = 2.0
 
