@@ -274,7 +274,7 @@ class OtherDebugPanel(Widget):
         ("Fault (Perm)", _fmt_bool(cs.steerFaultPermanent)),
       ])
       cards[2].set_rows([
-        ("Brake", f"{cs.brake:.3f}"),
+        ("Brake", f"{cs.deprecated.brake:.3f}"),
         ("Brake Pressed", _fmt_bool(cs.brakePressed)),
         ("Gas Pressed", _fmt_bool(cs.gasPressed)),
         ("Regen Braking", _fmt_bool(cs.regenBraking)),
@@ -338,7 +338,7 @@ class OtherDebugPanel(Widget):
           ("Rel. Accel", f"{lead.aRel:.2f} m/s\u00b2"),
           ("Lead Speed", f"{lead.vLead:.1f} m/s"),
           ("Path Dist", f"{lead.dPath:.2f} m"),
-          ("Status", _fmt_bool(lead.status, "Tracking", "No Lead")),
+          ("Status", _fmt_bool(lead.present, "Tracking", "No Lead")),
           ("FCW", _fmt_bool(lead.fcw)),
           ("Radar", _fmt_bool(lead.radar, "Yes", "Vision")),
         ]
