@@ -147,10 +147,13 @@ procs = [
   PythonProcess("card", "openpilot.selfdrive.car.card", only_onroad),
   PythonProcess("deleter", "openpilot.system.loggerd.deleter", always_run),
   PythonProcess("dmonitoringd", "openpilot.selfdrive.monitoring.dmonitoringd", driverview, enabled=(WEBCAM or not PC)),
-  # BluePilot: restart_if_crash -- a diag-port serial fault (see qcomgpsd.py's reconnect
-  # handling) is now recovered in-process, but this is a backstop for anything else that
-  # still takes the process down; without it a crash meant no GPS for the rest of the drive.
-  PythonProcess("qcomgpsd", "openpilot.system.qcomgpsd.qcomgpsd", qcomgps, enabled=COMMA_HARDWARE, restart_if_crash=True),
+  # BluePilot: this used to pass restart_if_crash=True as a backstop -- a diag-port serial fault
+  # (see qcomgpsd.py's reconnect handling) is recovered in-process, but a crash from anything else
+  # meant no GPS for the rest of the drive. Upstream deleted the restart_if_crash parameter and the
+  # feature behind it; ManagerProcess.start() now early-returns while self.proc is set, and the
+  # manager loop only reports dead processes instead of respawning them. There is no drop-in
+  # replacement, so the backstop is gone until it's reimplemented in the fork.
+  PythonProcess("qcomgpsd", "openpilot.system.qcomgpsd.qcomgpsd", qcomgps, enabled=COMMA_HARDWARE),
   PythonProcess("pandad", "openpilot.selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "openpilot.selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "openpilot.selfdrive.locationd.lagd", only_onroad),

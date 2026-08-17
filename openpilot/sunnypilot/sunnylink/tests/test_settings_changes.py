@@ -153,7 +153,7 @@ class TestTestManeuversSection(OpenpilotTestCase):
       "test_maneuvers must gate ShowAdvancedControls via enablement"
 
 
-class TestBluePilotVehicleVisuals:
+class TestBluePilotVehicleVisuals(OpenpilotTestCase):
   def test_rainbow_lane_lines_ordered_with_visual_toggles(self, schema):
     items = schema["vehicle_settings"]["ford"]["items"]
     keys = [item["key"] for item in items]
@@ -166,7 +166,7 @@ class TestBluePilotVehicleVisuals:
     assert item["description"] == "Inner lane lines become rainbow colored when longitudinal control is active."
 
 
-class TestBluePilotLateralSchemeSplit:
+class TestBluePilotLateralSchemeSplit(OpenpilotTestCase):
   """The Ford lateral-tuning params are split by control scheme (_curv/_ang suffixes) and every
   scheme-specific item must be visibility-gated on FordPrefLateralControl so the remote UI never
   offers a control that the other scheme silently ignores (e.g. In-Lane Offset in angle mode)."""
@@ -228,7 +228,9 @@ class TestBluePilotLateralSchemeSplit:
       "If oversteering, reduce. If understeering, increase",
     ))
     assert item["description"] == expected_description
-    assert (item["min"], item["max"], item["step"]) == (0.75, 1.25, 0.01)
+    # floor lowered 0.75 -> 0.25 (bp-dev af514cddf / PR #183); this assertion went stale unnoticed
+    # because the class was not a TestCase subclass and so was never collected.
+    assert (item["min"], item["max"], item["step"]) == (0.25, 1.25, 0.01)
     assert self._mode_gate(item) == 1
 
 
