@@ -53,8 +53,8 @@ def run(identifier):
     w = m.which()
     if w == 'carParams' and CP is None:
       CP = m.carParams
-    elif w == 'liveParameters':
-      angle_offset_deg = m.liveParameters.angleOffsetAverageDeg
+    elif w == 'vehicleParameters':
+      angle_offset_deg = m.vehicleParameters.angleOffsetAverageDeg
     elif w == 'livePose':
       yaw_imu = m.livePose.angularVelocityDevice.z
     elif w == 'carState':

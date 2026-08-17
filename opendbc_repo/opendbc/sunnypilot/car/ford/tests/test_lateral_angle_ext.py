@@ -47,7 +47,7 @@ class _FakeLiveDelay:
 
 class _FakeSubMaster:
   def __init__(self, *args, **kwargs):
-    self.updated = {s: False for s in ('modelV2', 'liveParameters', 'selfdriveState', 'radarState', 'lateralDelay')}
+    self.updated = {s: False for s in ('modelV2', 'vehicleParameters', 'selfdriveState', 'radarState', 'lateralDelay')}
 
   def update(self, timeout=0):
     pass
