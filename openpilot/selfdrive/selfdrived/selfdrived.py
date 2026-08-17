@@ -411,7 +411,14 @@ class SelfdriveD(CruiseHelper):
         'not_freq_ok': [s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok],
       }
       if logs != self.logged_comm_issue:
-        cloudlog.event("commIssue", error=True, **logs)
+        # BluePilot: elapsed time since process start, so system/sentry.py's commIssue filter can
+        # tell a transient still-warming-up blip (common in the first ~20s after init, while
+        # peripheral streams like modelV2/liveCalibration/liveDelay are still catching up) from a
+        # genuine mid-drive regression. Deliberately NOT part of `logs` above — dt changes every
+        # frame, which would defeat the dedup comparison against self.logged_comm_issue and log
+        # every single frame instead of once per distinct invalid/not_alive/not_freq_ok state.
+        cloudlog.event("commIssue", error=True, dt=self.sm.frame * DT_CTRL, **logs)
+        # End BluePilot
         self.logged_comm_issue = logs
     else:
       self.logged_comm_issue = None

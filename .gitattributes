@@ -53,3 +53,7 @@ third_party/bootstrap/bootstrap-icons.ttf -filter -diff -merge
 
 # BluePilot custom sounds: store directly in Git, not upstream GitLab LFS.
 openpilot/selfdrive/assets/sounds/bluepilot/*.wav -filter -diff -merge
+
+# Theme pack assets: store directly in Git, not upstream GitLab LFS.
+openpilot/selfdrive/assets/bp_themes/** -filter -diff -merge
+openpilot/sunnypilot/selfdrive/assets/images/spinner_sunnypilot.png -filter -diff -merge
