@@ -152,8 +152,6 @@ def preprocess_params_data() -> None:
   params_json = load_params_json()
 
   for param in params_json.get("params", []):
-    param_name = param["name"]
-
     # Cache by ccProp if present
     if "ccProp" in param:
       _cc_props_cache[param["ccProp"]] = param
