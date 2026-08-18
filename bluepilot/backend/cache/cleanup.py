@@ -80,7 +80,7 @@ def cleanup_old_cache():
     max_bytes = MAX_CACHE_SIZE_GB * 1024 * 1024 * 1024
     current_size = get_cache_size()
     expiration_seconds = CACHE_EXPIRATION_HOURS * 60 * 60
-    current_time = time.time()
+    current_time = time.time()  # noqa: TID251 -- compared against st_mtime (epoch)
 
     # Get all cache files
     cache_files = []
@@ -120,7 +120,7 @@ def cleanup_old_cache():
     # Remove expired files first (excluding starred routes)
     if expired_files:
         logger.info(f"Removing {len(expired_files)} expired cache files (>{CACHE_EXPIRATION_HOURS}h old, non-starred)")
-        for filepath, size, route_base in expired_files:
+        for filepath, size, _route_base in expired_files:
             try:
                 os.remove(filepath)
                 current_size -= size
@@ -159,7 +159,7 @@ def cleanup_old_cache():
             is_from_starred = filepath in [f for f, _, _ in starred]
             prefix = "starred" if is_from_starred else "old"
             logger.info(f"Removed {prefix} cached file: {os.path.basename(filepath)}")
-        except OSError as e:
-            logger.error(f"Error removing cache file {filepath}: {e}")
+        except OSError:
+            logger.exception(f"Error removing cache file {filepath}")
 
     logger.info(f"Cache cleanup complete: {current_size / 1024 / 1024 / 1024:.2f}GB remaining")

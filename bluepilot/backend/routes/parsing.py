@@ -28,7 +28,7 @@ def get_segment_number(route_name):
     if match:
         try:
             return int(match.group(1))
-        except:
+        except ValueError:
             return 0
     return 0
 

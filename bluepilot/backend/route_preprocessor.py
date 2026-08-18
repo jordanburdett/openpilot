@@ -8,7 +8,7 @@ DEPRECATED: Import from bluepilot.backend.routes.preprocessor instead
 """
 
 # Re-export everything from the new location
-from bluepilot.backend.routes.preprocessor import *  # noqa: F401, F403
+from bluepilot.backend.routes.preprocessor import *  # noqa: F403
 
 # Support running as a script
 if __name__ == "__main__":

@@ -28,8 +28,6 @@ except ImportError:
 from bluepilot.backend.routes.processing import (
     ROUTES_DIR,
     METRICS_CACHE,
-    THUMBNAIL_CACHE,
-    check_processing_status,
     process_route,
 )
 
@@ -232,7 +230,7 @@ def main():
     venv_site_packages = "/usr/local/venv/lib/python3.12/site-packages"
     if os.path.exists(venv_site_packages) and venv_site_packages not in sys.path:
         sys.path.insert(0, venv_site_packages)
-        logger.info(f"Added venv site-packages to sys.path for LogReader support")
+        logger.info("Added venv site-packages to sys.path for LogReader support")
 
     logger.info("BluePilot Route Preprocessor starting...")
     logger.info(f"Routes directory: {ROUTES_DIR}")
@@ -249,7 +247,7 @@ def main():
     # Get web server port from params
     try:
         web_port = int(params.get("BPPortalPort") or "8088")
-    except:
+    except (TypeError, ValueError):
         web_port = 8088
 
     broadcaster = WebSocketBroadcaster(http_fallback_port=web_port)
@@ -259,7 +257,7 @@ def main():
     check_interval = 30
 
     # Track known routes
-    known_routes = set(r['baseName'] for r in scan_routes())
+    known_routes = {r['baseName'] for r in scan_routes()}
     logger.info(f"Initial route count: {len(known_routes)}")
 
     while True:
@@ -286,8 +284,8 @@ def main():
         except KeyboardInterrupt:
             logger.info("Preprocessor stopped by user")
             break
-        except Exception as e:
-            logger.error(f"Error in main loop: {e}")
+        except Exception:
+            logger.exception("Error in main loop")
 
         # Wait before next check
         time.sleep(check_interval)

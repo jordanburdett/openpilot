@@ -12,6 +12,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
 from bluepilot.ui.lib.colors import BPColors
 from bluepilot.ui.widgets.debug.debug_colors import DebugColors
+from bluepilot.ui.widgets.debug import debug_errors
 
 
 # --- DebugDataCard ---
@@ -172,13 +173,13 @@ class OtherDebugPanel(Widget):
   def __init__(self):
     super().__init__()
     self._current_sub_tab = 0
-    self._last_update_times: dict[int, float] = {i: 0.0 for i in range(len(SUB_TAB_LABELS))}
+    self._last_update_times: dict[int, float] = dict.fromkeys(range(len(SUB_TAB_LABELS)), 0.0)
     self._font_bold = gui_app.font(FontWeight.BOLD)
     self._font_semi = gui_app.font(FontWeight.SEMI_BOLD)
     self._font_normal = gui_app.font(FontWeight.NORMAL)
 
     # Scroll state per tab
-    self._scroll_offsets: dict[int, float] = {i: 0.0 for i in range(len(SUB_TAB_LABELS))}
+    self._scroll_offsets: dict[int, float] = dict.fromkeys(range(len(SUB_TAB_LABELS)), 0.0)
     self._scroll_velocity: float = 0.0
     self._is_dragging: bool = False
     self._drag_start_y: float = 0.0
@@ -238,19 +239,23 @@ class OtherDebugPanel(Widget):
     if sm is None:
       return
 
+    updaters = {
+      0: self._update_main,
+      1: self._update_radar,
+      2: self._update_tuning,
+      3: self._update_firmware,
+      4: self._update_device,
+    }
+    updater = updaters.get(tab)
+    if updater is None:
+      return
+
     try:
-      if tab == 0:
-        self._update_main(sm)
-      elif tab == 1:
-        self._update_radar(sm)
-      elif tab == 2:
-        self._update_tuning(sm)
-      elif tab == 3:
-        self._update_firmware(sm)
-      elif tab == 4:
-        self._update_device(sm)
-    except (KeyError, AttributeError, ValueError, IndexError):
-      pass
+      updater(sm)
+    except Exception as exc:
+      # Never silent, never fatal -- see debug_errors for why this can't just propagate.
+      detail = debug_errors.report(f"other.{SUB_TAB_LABELS[tab].lower()}", exc)
+      self._tab_cards[tab][0].set_rows([("ERROR", detail)])
 
   def _update_main(self, sm):
     cards = self._tab_cards[0]

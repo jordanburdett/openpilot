@@ -4,7 +4,6 @@ BluePilot Backend Process Manager
 Process management and capacity control for FFmpeg and other background tasks
 """
 
-import os
 import time
 import logging
 import subprocess
@@ -47,7 +46,7 @@ def wait_for_ffmpeg_capacity(server_state, timeout=30.0, max_concurrent=3, reser
     Returns:
         bool: True if capacity became available, False if timed out
     """
-    deadline = None if timeout is None else time.time() + timeout
+    deadline = None if timeout is None else time.monotonic() + timeout
     min_capacity = max(1, max_concurrent - reserved_for_playback)
 
     while True:
@@ -55,7 +54,7 @@ def wait_for_ffmpeg_capacity(server_state, timeout=30.0, max_concurrent=3, reser
         if current < min_capacity:
             return True
 
-        if deadline and time.time() >= deadline:
+        if deadline and time.monotonic() >= deadline:
             return False
 
         time.sleep(0.5)

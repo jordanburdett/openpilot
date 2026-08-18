@@ -55,7 +55,6 @@ class ModelInfoWidget(Widget):
       self._click_callback()
 
   def _render(self, rect: rl.Rectangle):
-    padding_x = 20
     padding_top = 20
 
     # Draw card background

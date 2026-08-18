@@ -27,7 +27,6 @@ from bluepilot.backend.config import (
     MAX_CONCURRENT_FFMPEG,
 )
 from bluepilot.backend.video.ffmpeg import FFmpegProcess
-from bluepilot.backend.utils.power import enable_performance_mode
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ def get_segment_number(route_name):
     if match:
         try:
             return int(match.group(1))
-        except:
+        except ValueError:
             return 0
     return 0
 

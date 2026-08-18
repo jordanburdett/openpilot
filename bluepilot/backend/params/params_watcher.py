@@ -9,7 +9,8 @@ import time
 import logging
 import threading
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Any
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ParamsWatcher:
     """Watch params directory for changes and broadcast updates"""
 
-    def __init__(self, params, broadcast_callback: Optional[Callable] = None):
+    def __init__(self, params, broadcast_callback: Callable | None = None):
         """
         Initialize params watcher
 
@@ -75,8 +76,8 @@ class ParamsWatcher:
         while self.running:
             try:
                 self._check_for_changes()
-            except Exception as e:
-                logger.error(f"Error in params watcher loop: {e}")
+            except Exception:
+                logger.exception("Error in params watcher loop")
 
             # Sleep in small increments to allow quick shutdown
             for _ in range(int(self.check_interval * 10)):
@@ -107,8 +108,8 @@ class ParamsWatcher:
                     except Exception as e:
                         logger.debug(f"Could not read param {param_key}: {e}")
 
-        except Exception as e:
-            logger.error(f"Error updating params cache: {e}")
+        except Exception:
+            logger.exception("Error updating params cache")
 
     def _read_param_value(self, key: str) -> Any:
         """Read a param value using the Params instance.
@@ -119,7 +120,7 @@ class ParamsWatcher:
         """
         try:
             # Try boolean first
-            if key.endswith("Enabled") or key.endswith("Toggle") or key in ["IsOffroad", "Passive"]:
+            if key.endswith(("Enabled", "Toggle")) or key in ["IsOffroad", "Passive"]:
                 return self.params.get_bool(key)
 
             value = self.params.get(key)
@@ -199,13 +200,13 @@ class ParamsWatcher:
                 self._broadcast_change(key, None)
                 logger.debug(f"Param deleted: {key}")
 
-        except Exception as e:
-            logger.error(f"Error checking for param changes: {e}")
+        except Exception:
+            logger.exception("Error checking for param changes")
 
     def _broadcast_change(self, key: str, value: Any):
         """Broadcast a param change via the callback"""
         if self.broadcast_callback:
             try:
                 self.broadcast_callback(key, value)
-            except Exception as e:
-                logger.error(f"Error broadcasting param change for {key}: {e}")
+            except Exception:
+                logger.exception(f"Error broadcasting param change for {key}")

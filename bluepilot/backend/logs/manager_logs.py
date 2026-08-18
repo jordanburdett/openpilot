@@ -14,7 +14,6 @@ import os
 import re
 from collections import deque
 from datetime import datetime
-from typing import Deque, Dict, Optional, Tuple
 
 from openpilot.common.hardware.hw import Paths
 
@@ -45,7 +44,7 @@ def _strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_PATTERN.sub('', text)
 
 
-def _get_field(data: Optional[Dict], key: str):
+def _get_field(data: dict | None, key: str):
     """
     Retrieve a key from a swaglog record, handling type suffixes
     (e.g. msg$s, level$i). Returns None if not present.
@@ -63,7 +62,7 @@ def _get_field(data: Optional[Dict], key: str):
     return None
 
 
-def _format_timestamp(value: Optional[float]) -> str:
+def _format_timestamp(value: float | None) -> str:
     """Format a unix timestamp into a human readable string."""
     try:
         if value:
@@ -94,7 +93,7 @@ def _stringify_message(message, preserve_ansi: bool = True) -> str:
     return cleaned
 
 
-def parse_manager_log_line(record: str, colorize: bool = True) -> Optional[str]:
+def parse_manager_log_line(record: str, colorize: bool = True) -> str | None:
     """
     Parse a single swaglog JSON entry (from messaging or file) and return
     a formatted string if it belongs to the manager daemon.
@@ -130,7 +129,7 @@ def parse_manager_log_line(record: str, colorize: bool = True) -> Optional[str]:
     return f"{timestamp} [{level}] {module}: {msg}".strip()
 
 
-def read_recent_manager_logs(max_lines: int = 1000, max_files: int = 25) -> Tuple[bool, str]:
+def read_recent_manager_logs(max_lines: int = 1000, max_files: int = 25) -> tuple[bool, str]:
     """
     Read recent manager log lines from rotating swaglog files.
 
@@ -157,11 +156,11 @@ def read_recent_manager_logs(max_lines: int = 1000, max_files: int = 25) -> Tupl
     files.sort()
     files = files[-max_files:]
 
-    lines: Deque[str] = deque(maxlen=max_lines)
+    lines: deque[str] = deque(maxlen=max_lines)
 
     for path in files:
         try:
-            with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+            with open(path, encoding='utf-8', errors='replace') as fh:
                 for raw_line in fh:
                     raw_line = raw_line.strip()
                     if not raw_line:

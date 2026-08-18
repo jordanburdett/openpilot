@@ -92,8 +92,7 @@ class FFmpegProcess:
         current_count = self.server_state.get_ffmpeg_count()
         if current_count >= self.max_concurrent:
             raise RuntimeError(
-                f"Too many FFmpeg processes ({current_count}/{self.max_concurrent}). "
-                "Please wait and try again."
+                f"Too many FFmpeg processes ({current_count}/{self.max_concurrent}). Please wait and try again."
             )
         return self
 
@@ -111,8 +110,8 @@ class FFmpegProcess:
                         logger.warning(f"FFmpeg process {self.pid} did not terminate gracefully, force killing")
                         self.process.kill()
                         self.process.wait()
-            except Exception as e:
-                logger.error(f"Error cleaning up FFmpeg process {self.pid}: {e}")
+            except Exception:
+                logger.exception(f"Error cleaning up FFmpeg process {self.pid}")
             finally:
                 # Wait for log streaming thread to finish
                 if self.log_thread and self.log_thread.is_alive():
@@ -141,7 +140,7 @@ class FFmpegProcess:
                 # Replace -loglevel error with verbose logging for debugging
                 modified_cmd = []
                 skip_next = False
-                for i, arg in enumerate(cmd):
+                for _i, arg in enumerate(cmd):
                     if skip_next:
                         skip_next = False
                         continue
@@ -181,6 +180,6 @@ class FFmpegProcess:
 
             return self.process
 
-        except Exception as e:
-            logger.error(f"Failed to start FFmpeg: {e}")
+        except Exception:
+            logger.exception("Failed to start FFmpeg")
             raise

@@ -45,7 +45,7 @@ class IntelligentCruiseButtonManagement:
     self.is_metric = False
 
     self.cruise_button_timers = CRUISE_BUTTON_TIMER
-    
+
     # BluePilot: Track initial cruise speed when first enabled
     self.initial_cruise_speed_kph = 0
     self.cruise_enabled_prev = False
@@ -72,7 +72,7 @@ class IntelligentCruiseButtonManagement:
     self.v_target = round(self.v_target_ms_last * speed_conv)
     self.v_cruise_min = get_minimum_set_speed(self.is_metric)
     self.v_cruise_cluster = round(CS.cruiseState.speedCluster * speed_conv)
-    
+
     # BluePilot: If planner target is invalid/unreasonable and we have an initial cruise speed,
     # use the initial speed as the target (or cluster speed if it's been set)
     MAX_REASONABLE_TARGET = 145 if self.is_metric else 90
@@ -105,7 +105,7 @@ class IntelligentCruiseButtonManagement:
               # Don't increase if target exceeds initial cruise speed by more than 5 mph/kph
               MAX_REASONABLE_TARGET = 145 if self.is_metric else 90
               MAX_INITIAL_INCREASE = 5  # Allow small increases from initial speed
-              
+
               if self.v_cruise_cluster == 0 or self.v_target >= MAX_REASONABLE_TARGET:
                 # Don't increase - stay in preActive or go to holding
                 self.state = State.holding

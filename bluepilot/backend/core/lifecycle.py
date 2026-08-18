@@ -70,8 +70,8 @@ def record_crash(params):
 
         logger.warning(f"Server error occurred ({crash_count} recent errors) - continuing operation")
 
-    except Exception as e:
-        logger.error(f"Error recording crash: {e}")
+    except Exception:
+        logger.exception("Error recording crash")
 
 
 def check_and_handle_crashes(params):
@@ -117,8 +117,8 @@ def check_and_handle_crashes(params):
 
         return True  # Always allow server to start
 
-    except Exception as e:
-        logger.error(f"Error checking crash status: {e}")
+    except Exception:
+        logger.exception("Error checking crash status")
         return True  # Default to allowing server start
 
 
@@ -178,9 +178,9 @@ def trigger_restart():
     logger.info("Restarting server process...")
     try:
         os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception as e:
+    except Exception:
         # If execv fails, reset the triggered flag so it can be retried
-        logger.error(f"Failed to restart server: {e}")
+        logger.exception("Failed to restart server")
         with _restart_lock:
             _restart_triggered = False
         raise
@@ -202,7 +202,7 @@ def install_dependencies_background(on_complete_callback=None):
         try:
             # Check if websockets is available
             try:
-                import websockets
+                import websockets  # noqa: F401 -- import guard -- presence is the check
                 logger.info("websockets library is already available")
                 if on_complete_callback:
                     on_complete_callback(False)
@@ -251,12 +251,12 @@ def install_dependencies_background(on_complete_callback=None):
                     on_complete_callback(False)
 
         except subprocess.TimeoutExpired:
-            logger.error("Package installation timed out (120s)")
+            logger.exception("Package installation timed out (120s)")
             logger.info("Network may not be available. WebSocket features will remain disabled")
             if on_complete_callback:
                 on_complete_callback(False)
-        except Exception as e:
-            logger.error(f"Error during background package installation: {e}")
+        except Exception:
+            logger.exception("Error during background package installation")
             if on_complete_callback:
                 on_complete_callback(False)
 
@@ -282,7 +282,7 @@ def ensure_dependencies():
     try:
         # Check if websockets is available (direct import)
         try:
-            import websockets
+            import websockets  # noqa: F401 -- import guard -- presence is the check
             logger.info("websockets library is available")
             return False  # No restart needed
         except ImportError:
@@ -317,11 +317,11 @@ def ensure_dependencies():
                 return False
 
         except subprocess.TimeoutExpired:
-            logger.error("Package installation timed out (60s)")
+            logger.exception("Package installation timed out (60s)")
             logger.info("Network may not be available yet. WebSocket features will remain disabled")
             return False
-        except Exception as e:
-            logger.error(f"Error during package installation: {e}")
+        except Exception:
+            logger.exception("Error during package installation")
             return False
 
     except Exception as e:

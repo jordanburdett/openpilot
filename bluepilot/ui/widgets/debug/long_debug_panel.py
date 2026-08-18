@@ -9,6 +9,7 @@ import pyray as rl
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
 from bluepilot.ui.widgets.debug.debug_colors import DebugColors
+from bluepilot.ui.widgets.debug import debug_errors
 from bluepilot.ui.widgets.debug.debug_graph import TimeSeriesGraph, GraphConfig, GraphSeries
 
 # Match Qt update rate: 20Hz = 50ms between data pushes
@@ -115,8 +116,9 @@ class LongDebugPanel(Widget):
         ("Brake", brake_text),
       ])
 
-    except (KeyError, AttributeError, ValueError):
-      pass
+    except Exception as exc:
+      detail = debug_errors.report("longitudinal", exc)
+      self._control_graph.set_extra_legend([("ERROR", detail)])
 
   def _render(self, rect: rl.Rectangle):
     # Split rect vertically: top half for accel, bottom half for control

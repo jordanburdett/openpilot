@@ -19,16 +19,14 @@ import json
 import mimetypes
 import subprocess
 import sys
-import shutil
 import time
 import signal
 import atexit
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import logging
-import re
 import asyncio
 import threading
 import requests
@@ -45,25 +43,25 @@ try:
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    
+
     # Create file handler
     file_handler = logging.FileHandler(log_file, mode='a')
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s [%(name)s]: %(message)s'))
-    
+
     # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter('%(levelname)s [%(name)s]: %(message)s'))
-    
+
     # Configure root logger
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
+
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured - file: {log_file}")
-except Exception as e:
+except Exception:
     # Fallback to basic config if file logging fails
     logging.basicConfig(
         level=logging.INFO,
@@ -71,7 +69,7 @@ except Exception as e:
         force=True
     )
     logger = logging.getLogger(__name__)
-    logger.error(f"Failed to configure file logging: {e}")
+    logger.exception("Failed to configure file logging")
 
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
@@ -229,8 +227,8 @@ def restart_ui_process():
         logger.warning(f"pkill returned unexpected code {result.returncode}: {result.stderr.strip()}")
     except FileNotFoundError:
         logger.warning('pkill not available for UI restart fallback')
-    except Exception as exc:
-        logger.error(f"Failed to invoke pkill for UI restart: {exc}")
+    except Exception:
+        logger.exception("Failed to invoke pkill for UI restart")
 
     return False, 'Unable to signal UI process'
 
@@ -258,16 +256,16 @@ def broadcast_websocket_event(event_type, data=None):
     if broadcaster:
         try:
             broadcaster.broadcast(event_type, data)
-        except Exception as e:
-            logger.error(f"Error broadcasting WebSocket event {event_type}: {e}")
+        except Exception:
+            logger.exception(f"Error broadcasting WebSocket event {event_type}")
 
 
 async def websocket_handler(websocket):
     """Handle WebSocket connections (thread-safe)"""
     try:
-        import websockets
+        import websockets  # noqa: F401 -- import guard -- presence is the check
     except ImportError:
-        logger.error("websockets not available in handler")
+        logger.exception("websockets not available in handler")
         return
 
     try:
@@ -379,7 +377,7 @@ async def start_websocket_server():
                         retry_count += 1
                         await asyncio.sleep(1)
                     else:
-                        logger.error(f"Failed to free port {WEBSOCKET_PORT}")
+                        logger.exception(f"Failed to free port {WEBSOCKET_PORT}")
                         raise
                 else:
                     raise
@@ -397,7 +395,7 @@ async def start_websocket_server():
 def start_websocket_server_thread():
     """Start WebSocket server in a separate thread (thread-safe)"""
     try:
-        import websockets
+        import websockets  # noqa: F401 -- import guard -- presence is the check
     except ImportError:
         logger.warning("WebSocket server thread not started - websockets library not available")
         return
@@ -441,9 +439,8 @@ class ReuseAddressHTTPServer(ThreadingHTTPServer):
 class WebRoutesHandler(BaseHTTPRequestHandler):
     """HTTP request handler for web routes server"""
 
-    def log_message(self, format, *args):
+    def log_message(self, format, *args):  # noqa: A002 -- signature fixed by BaseHTTPRequestHandler.log_message
         """Override to use logger - log at DEBUG level to reduce verbosity"""
-        pass
         # logger.debug(f"{self.address_string()} - {format % args}")
 
     def send_cors_headers(self):
@@ -612,12 +609,12 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
-        except (IOError, OSError) as e:
-            logger.error(f"Error sending file {filepath}: {e}")
+        except OSError:
+            logger.exception(f"Error sending file {filepath}")
             # Connection might be broken, don't try to send error response
             return
-        except Exception as e:
-            logger.error(f"Unexpected error sending file {filepath}: {e}")
+        except Exception:
+            logger.exception(f"Unexpected error sending file {filepath}")
             return
 
     def send_remuxed_hevc(self, hevc_path, route_base, segment_num, camera, debug_mode=False):
@@ -773,7 +770,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
 
                     # Exit -9 (SIGKILL) means the process was killed, possibly by OOM killer or cleanup
                     if process.returncode == -9:
-                        logger.error(f"FFmpeg was killed (exit -9) - likely out of memory")
+                        logger.error("FFmpeg was killed (exit -9) - likely out of memory")
                         logger.error(f"HEVC file: {hevc_path}, size: {os.path.getsize(hevc_path) / (1024*1024):.1f}MB")
                         logger.error("This can happen if:")
                         logger.error("  1. System is out of memory (check dmesg for OOM killer messages)")
@@ -807,7 +804,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
             return
 
         except FileNotFoundError:
-            logger.error("FFmpeg not found - install with: apt-get install ffmpeg")
+            logger.exception("FFmpeg not found - install with: apt-get install ffmpeg")
             self.send_json_response({
                 'error': 'FFmpeg not installed on server',
                 'details': 'Video conversion tool is not available',
@@ -826,12 +823,12 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     logger.debug(f"Error cleaning up cache file: {cleanup_err}")
 
             # Try to serve raw HEVC as fallback
-            logger.warning(f"Remuxing failed, attempting to serve raw HEVC as fallback")
+            logger.warning("Remuxing failed, attempting to serve raw HEVC as fallback")
             try:
                 self.send_file_response(hevc_path, 'video/mp4; codecs="hev1"')
                 return
             except Exception as fallback_error:
-                logger.error(f"Fallback to raw HEVC also failed: {fallback_error}")
+                logger.exception("Fallback to raw HEVC also failed")
                 self.send_json_response({
                     'error': 'Video conversion failed',
                     'details': str(e),
@@ -998,7 +995,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     # Get system uptime
                     uptime_seconds = 0
                     try:
-                        with open('/proc/uptime', 'r') as f:
+                        with open('/proc/uptime') as f:
                             uptime_seconds = int(float(f.read().split()[0]))
                     except Exception as e:
                         logger.debug(f"Could not read uptime: {e}")
@@ -1076,7 +1073,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     try:
                         bp_version_path = os.path.join(os.path.dirname(__file__), '../../BPVERSION')
                         if os.path.exists(bp_version_path):
-                            with open(bp_version_path, 'r') as f:
+                            with open(bp_version_path) as f:
                                 device_info['bp_version'] = f.read().strip()
                         else:
                             device_info['bp_version'] = None
@@ -1088,7 +1085,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     try:
                         op_version_path = os.path.join(os.path.dirname(__file__), '../../common/version.h')
                         if os.path.exists(op_version_path):
-                            with open(op_version_path, 'r') as f:
+                            with open(op_version_path) as f:
                                 content = f.read()
                                 # Extract version from #define COMMA_VERSION "0.10.1"
                                 import re
@@ -1107,7 +1104,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     try:
                         sp_version_path = os.path.join(os.path.dirname(__file__), '../../sunnypilot/common/version.h')
                         if os.path.exists(sp_version_path):
-                            with open(sp_version_path, 'r') as f:
+                            with open(sp_version_path) as f:
                                 content = f.read()
                                 # Extract version from #define SUNNYPILOT_VERSION "2025.003.000"
                                 import re
@@ -1155,7 +1152,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     try:
                         import psutil
                         process = psutil.Process(os.getpid())
-                        uptime_seconds = time.time() - process.create_time()
+                        uptime_seconds = time.time() - process.create_time()  # noqa: TID251 -- psutil create_time() is epoch-based
                     except Exception as e:
                         logger.debug(f"Could not get uptime: {e}")
                         uptime_seconds = int(server_state.get_server_uptime())
@@ -1273,11 +1270,11 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     # Limit file size to 100KB for safety
                     if file_size > 100 * 1024:
                         # Read only the last 100KB
-                        with open(crash_file, 'r', encoding='utf-8', errors='replace') as f:
+                        with open(crash_file, encoding='utf-8', errors='replace') as f:
                             f.seek(max(0, file_size - 100 * 1024))
                             content = f.read()
                     else:
-                        with open(crash_file, 'r', encoding='utf-8', errors='replace') as f:
+                        with open(crash_file, encoding='utf-8', errors='replace') as f:
                             content = f.read()
 
                     # Parse the error content to extract useful info
@@ -1610,7 +1607,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     cache_file = os.path.join(METRICS_CACHE, f"{route_base}.json")
                     try:
                         if os.path.exists(cache_file):
-                            with open(cache_file, 'r') as f:
+                            with open(cache_file) as f:
                                 cached_data = json.load(f)
 
                             cached_data['start_location'] = start_location
@@ -1676,13 +1673,13 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                 route_start_dt = parse_route_datetime(route_base)
                 if route_start_dt is not None:
                     # Treat stored timestamps as UTC for consistent program-date markers
-                    route_start_dt = route_start_dt.replace(tzinfo=timezone.utc)
+                    route_start_dt = route_start_dt.replace(tzinfo=UTC)
                 else:
                     try:
                         first_seg_path = segments[0]['path']
                         route_start_dt = datetime.fromtimestamp(
                             os.path.getmtime(first_seg_path),
-                            tz=timezone.utc
+                            tz=UTC
                         )
                     except Exception:
                         route_start_dt = None
@@ -2059,7 +2056,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             continue
 
                         try:
-                            with open(panel_file, 'r') as f:
+                            with open(panel_file) as f:
                                 panel_data = json.load(f)
                                 panel_data_map[panel_file.stem] = {
                                     'id': panel_file.stem,  # e.g., 'bp_device_panel'
@@ -2101,7 +2098,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         self.send_json_response({'success': False, 'error': 'Panel not found'}, 404)
                         return
 
-                    with open(panel_file, 'r') as f:
+                    with open(panel_file) as f:
                         panel_data = json.load(f)
 
                     self.send_json_response({
@@ -2243,7 +2240,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                 # Get favorite settings from file
                 try:
                     if os.path.exists(FAVORITE_SETTINGS_FILE):
-                        with open(FAVORITE_SETTINGS_FILE, 'r') as f:
+                        with open(FAVORITE_SETTINGS_FILE) as f:
                             favorites = json.load(f)
                         self.send_json_response({
                             'success': True,
@@ -2255,8 +2252,8 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             'success': True,
                             'favorites': []
                         })
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error parsing favorites file: {e}")
+                except json.JSONDecodeError:
+                    logger.exception("Error parsing favorites file")
                     self.send_json_response({
                         'success': True,
                         'favorites': []
@@ -2274,7 +2271,11 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     cached_stats = None
                     try:
                         cached_stats_data = params.get("ApiCache_DriveStats")
-                        logger.info(f"ApiCache_DriveStats: type={type(cached_stats_data)}, exists={cached_stats_data is not None}, len={len(cached_stats_data) if cached_stats_data else 0}")
+                        logger.info(
+                            "ApiCache_DriveStats: type=%s, exists=%s, len=%s",
+                            type(cached_stats_data), cached_stats_data is not None,
+                            len(cached_stats_data) if cached_stats_data else 0,
+                        )
 
                         # Handle both cases: bytes (fallback Params) and dict (openpilot Params with auto-deserialization)
                         if isinstance(cached_stats_data, dict):
@@ -2297,10 +2298,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         all_routes = cached_stats.get('all', {}).get('routes', 0)
                         all_distance = cached_stats.get('all', {}).get('distance', 0)
                         all_minutes = cached_stats.get('all', {}).get('minutes', 0)
-                        
+
                         # Check if cached stats have actual data (not all zeros)
                         has_data = (all_routes > 0) or (all_distance > 0) or (all_minutes > 0)
-                        
+
                         if has_data:
                             logger.info(f"Using cached drive stats: {all_routes} routes, {all_distance} miles, {all_minutes} minutes")
                             # Parse response (format: {all: {routes, distance, minutes}, week: {...}})
@@ -2339,35 +2340,35 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             self.send_json_response(result)
                             return
                         else:
-                            logger.info(f"Cached stats exist but are empty (all zeros), will fetch from API")
+                            logger.info("Cached stats exist but are empty (all zeros), will fetch from API")
                     else:
                         logger.info("No cached stats found, will fetch from API")
 
                     # No cached data available - try fetching from Comma API first, then calculate from routes as fallback
                     logger.info("No cached drive stats in ApiCache_DriveStats param, attempting to fetch from Comma API...")
-                    
+
                     # Try fetching from Comma API (same as Qt widget does)
                     try:
                         from openpilot.common.api import api_get, Api
                         from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
-                        
+
                         dongle_id = params.get("DongleId")
                         # Handle bytes vs string
                         if isinstance(dongle_id, bytes):
                             dongle_id = dongle_id.decode('utf-8').strip()
-                        
+
                         logger.info(f"Attempting API fetch - DongleId: {dongle_id[:10]}..., Is registered: {dongle_id and dongle_id != UNREGISTERED_DONGLE_ID}")
-                        
+
                         if dongle_id and dongle_id != UNREGISTERED_DONGLE_ID:
                             try:
                                 # Use Api directly instead of get_token helper to avoid cached time validation
                                 # The Api class will handle token generation internally
                                 api = Api(dongle_id)
                                 identity_token = api.get_token()
-                                logger.info(f"Got identity token, fetching stats from API...")
+                                logger.info("Got identity token, fetching stats from API...")
                                 response = api_get(f"v1.1/devices/{dongle_id}/stats", access_token=identity_token, timeout=10)
                                 logger.info(f"API response status: {response.status_code}")
-                                
+
                                 if response.status_code == 200:
                                     api_data = response.json()
                                     # Cache the response in ApiCache_DriveStats param (same format as Qt widget expects)
@@ -2381,10 +2382,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                         try:
                                             params.put("ApiCache_DriveStats", json.dumps(api_data))
                                             logger.info(f"Successfully cached drive stats (as JSON string): {api_data.get('all', {}).get('routes', 0)} routes")
-                                        except Exception as cache_error2:
-                                            logger.error(f"Failed to cache drive stats: {cache_error2}")
+                                        except Exception:
+                                            logger.exception("Failed to cache drive stats")
                                     logger.info(f"Successfully fetched drive stats from Comma API: {api_data.get('all', {}).get('routes', 0)} routes")
-                                    
+
                                     # Parse and return the data
                                     def convert_api_stats(stats_data):
                                         """Convert API stats to frontend format"""
@@ -2393,10 +2394,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                         duration_minutes = stats_data.get('minutes', 0)
                                         duration_seconds = duration_minutes * 60
                                         routes = stats_data.get('routes', 0)
-                                        
+
                                         # Calculate average speed if we have both distance and duration
                                         avg_speed_ms = distance_meters / duration_seconds if duration_seconds > 0 else 0
-                                        
+
                                         return {
                                             'routes': routes,
                                             'distance': distance_meters,
@@ -2405,10 +2406,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                             'durationMinutes': duration_minutes,
                                             'averageSpeed': avg_speed_ms,  # m/s
                                         }
-                                    
+
                                     all_stats = convert_api_stats(api_data.get('all', {}))
                                     week_stats = convert_api_stats(api_data.get('week', {}))
-                                    
+
                                     result = {
                                         'success': True,
                                         'all': all_stats,
@@ -2416,7 +2417,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                         'source': 'comma_api',
                                         'timestamp': datetime.now().isoformat()
                                     }
-                                    
+
                                     self.send_json_response(result)
                                     return
                                 else:
@@ -2430,18 +2431,18 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         logger.error(f"Could not import API helpers: {e}", exc_info=True)
                     except Exception as api_error:
                         logger.error(f"Error fetching drive stats from Comma API: {api_error}", exc_info=True)
-                    
+
                     # Fallback: calculate from routes
                     logger.info("Comma API fetch failed or unavailable, calculating from routes...")
-                    
+
                     try:
                         # Get all routes
                         all_routes = scan_routes()
                         logger.info(f"Found {len(all_routes)} routes to aggregate")
-                        
+
                         # Calculate cutoff for "week" stats (7 days ago)
-                        week_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-                        
+                        week_cutoff = datetime.now(UTC) - timedelta(days=7)
+
                         # Aggregate stats
                         all_time_stats = {
                             'routes': 0,
@@ -2453,28 +2454,28 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             'distance': 0.0,  # miles
                             'duration': 0.0,  # seconds
                         }
-                        
+
                         for route in all_routes:
                             route_base = route.get('baseName')
                             if not route_base:
                                 continue
-                            
+
                             # Get cached drive stats for this route
                             route_stats = get_route_drive_stats_cached_only(route_base)
                             if not route_stats:
                                 # Skip routes without cached stats
                                 continue
-                            
+
                             # Extract distance and duration from route stats
                             # route_stats format: {distance: miles, duration: seconds, ...}
                             route_distance = route_stats.get('distance', 0)  # miles
                             route_duration = route_stats.get('duration', 0)  # seconds
-                            
+
                             # Add to all-time stats
                             all_time_stats['routes'] += 1
                             all_time_stats['distance'] += route_distance
                             all_time_stats['duration'] += route_duration
-                            
+
                             # Check if route is within last week
                             route_timestamp = route.get('timestamp')
                             if route_timestamp:
@@ -2487,7 +2488,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                         week_stats['duration'] += route_duration
                                 except (ValueError, AttributeError) as e:
                                     logger.debug(f"Could not parse route timestamp {route_timestamp}: {e}")
-                        
+
                         # Convert to frontend format
                         def convert_calculated_stats(stats_data):
                             """Convert calculated stats to frontend format"""
@@ -2496,10 +2497,10 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             duration_seconds = stats_data.get('duration', 0)
                             duration_minutes = duration_seconds / 60
                             routes = stats_data.get('routes', 0)
-                            
+
                             # Calculate average speed if we have both distance and duration
                             avg_speed_ms = distance_meters / duration_seconds if duration_seconds > 0 else 0
-                            
+
                             return {
                                 'routes': routes,
                                 'distance': distance_meters,
@@ -2508,14 +2509,17 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                                 'durationMinutes': duration_minutes,
                                 'averageSpeed': avg_speed_ms,  # m/s
                             }
-                        
+
                         all_stats = convert_calculated_stats(all_time_stats)
                         week_stats_formatted = convert_calculated_stats(week_stats)
-                        
-                        logger.info(f"Calculated aggregate stats: {all_time_stats['routes']} routes, "
-                                  f"{round(all_time_stats['distance'], 1)} miles, "
-                                  f"{round(all_time_stats['duration'] / 3600, 1)} hours")
-                        
+
+                        logger.info(
+                            "Calculated aggregate stats: %s routes, %s miles, %s hours",
+                            all_time_stats['routes'],
+                            round(all_time_stats['distance'], 1),
+                            round(all_time_stats['duration'] / 3600, 1),
+                        )
+
                         result = {
                             'success': True,
                             'all': all_stats,
@@ -2523,14 +2527,14 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             'source': 'calculated_from_routes',
                             'timestamp': datetime.now().isoformat()
                         }
-                        
+
                         self.send_json_response(result)
                         return
-                        
+
                     except Exception as calc_error:
                         logger.error(f"Error calculating drive stats from routes: {calc_error}", exc_info=True)
                         # Fall through to return zeros if calculation fails
-                    
+
                     # If calculation failed or no routes found, return zeros
                     logger.debug("Could not calculate stats from routes, returning zeros")
                     zero_stats = {
@@ -2615,7 +2619,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         return
 
                     try:
-                        with open(abs_path, 'r', encoding='utf-8') as f:
+                        with open(abs_path, encoding='utf-8') as f:
                             content = f.read()
 
                         self.send_json_response({
@@ -2626,7 +2630,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                         })
                     except UnicodeDecodeError:
                         # Try reading as binary if UTF-8 fails
-                        with open(abs_path, 'r', encoding='latin-1') as f:
+                        with open(abs_path, encoding='latin-1') as f:
                             content = f.read()
 
                         self.send_json_response({
@@ -2712,7 +2716,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
 
         if info is None:
             thread_active = server_state.get_route_export_thread(key) is not None
-            now = time.time()
+            now = time.time()  # noqa: TID251 -- psutil create_time() is epoch-based
             info = {
                 'status': 'processing' if thread_active else 'idle',
                 'message': 'Preparing video' if thread_active else 'Ready to generate video',
@@ -2916,8 +2920,8 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                     try:
                         os.remove(export_path)
                         logger.info(f"Cleaned up cancelled export: {export_path}")
-                    except Exception as e:
-                        logger.error(f"Failed to clean up export file: {e}")
+                    except Exception:
+                        logger.exception("Failed to clean up export file")
 
                 self.send_json_response({'status': 'cancelled', 'message': 'Export cancelled'})
                 return
@@ -3151,7 +3155,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                             })
 
                         except Exception as e:
-                            logger.error(f"Failed to restore param {param_key}: {e}")
+                            logger.exception(f"Failed to restore param {param_key}")
                             failed.append({'param': param_key, 'error': str(e)})
 
                     self.send_json_response({
@@ -3430,7 +3434,7 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
 
                         try:
                             if os.path.exists(error_log_path):
-                                with open(error_log_path, 'r') as f:
+                                with open(error_log_path) as f:
                                     content = f.read()
 
                                 # Get file modification time
@@ -3490,7 +3494,6 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/clear-cache':
                 # Clear all cached data (remuxed videos, thumbnails, GPS metrics, drive stats, fingerprints)
-                import shutil
 
                 cleared = {
                     'remux_cache': 0,
@@ -3779,7 +3782,7 @@ def main():
 
     # Start WebSocket server in separate thread if websockets is available
     try:
-        import websockets
+        import websockets  # noqa: F401 -- import guard -- presence is the check
         websocket_thread = threading.Thread(
             target=start_websocket_server_thread,
             daemon=True,
@@ -3827,8 +3830,8 @@ def main():
                 'source': 'external'  # Indicates change came from outside the web interface
             })
             logger.debug(f"Broadcasted external param change: {key} = {value}")
-        except Exception as e:
-            logger.error(f"Error broadcasting param change: {e}")
+        except Exception:
+            logger.exception("Error broadcasting param change")
 
     params_watcher = ParamsWatcher(params, broadcast_callback=on_param_change)
     params_watcher.start()
@@ -3898,7 +3901,7 @@ def main():
                     time.sleep(2)
                     continue
                 else:
-                    logger.error(f"Port {port} is still in use after retries. Forcing cleanup...")
+                    logger.exception(f"Port {port} is still in use after retries. Forcing cleanup...")
                     # Last resort: kill all python processes with web_routes_server
                     try:
                         subprocess.run(['pkill', '-9', '-f', 'web_routes_server.py'], timeout=2)
@@ -3908,9 +3911,9 @@ def main():
                         server.timeout = 30
                         logger.info(f"Successfully bound to {bind_address}:{port} after force cleanup")
                         break
-                    except Exception as final_error:
-                        logger.error(f"Failed to start server even after force cleanup: {final_error}")
-                        logger.error("Manual intervention required. Try: sudo reboot")
+                    except Exception:
+                        logger.exception("Failed to start server even after force cleanup")
+                        logger.exception("Manual intervention required. Try: sudo reboot")
                         return
             else:
                 raise
@@ -3935,8 +3938,8 @@ def main():
                 logger.info(f"Device status changed to: {status_str}")
 
             last_onroad_status[0] = current_onroad
-        except Exception as e:
-            logger.error(f"Error in status monitor: {e}")
+        except Exception:
+            logger.exception("Error in status monitor")
 
     # Start background dependency installation if needed (after server is ready to start)
     # This ensures the server is responsive immediately while packages install in background
@@ -3971,8 +3974,8 @@ def main():
                     logger.warning(f"Error during server shutdown: {e}")
                 try:
                     lifecycle.trigger_restart()
-                except Exception as e:
-                    logger.error(f"Failed to trigger restart: {e}")
+                except Exception:
+                    logger.exception("Failed to trigger restart")
                     # Server will continue running, retry on next timeout
                 return  # Don't call original handler if restarting
 
@@ -3985,8 +3988,8 @@ def main():
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
         server.shutdown()
-    except Exception as e:
-        logger.error(f"Server error: {e}")
+    except Exception:
+        logger.exception("Server error")
         # Record this error for monitoring but don't stop the server
         # lifecycle.record_crash()
         logger.info("Server continuing despite error...")

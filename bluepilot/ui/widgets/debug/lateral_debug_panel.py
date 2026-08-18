@@ -9,6 +9,7 @@ import pyray as rl
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
 from bluepilot.ui.widgets.debug.debug_colors import DebugColors
+from bluepilot.ui.widgets.debug import debug_errors
 from bluepilot.ui.widgets.debug.debug_graph import TimeSeriesGraph, GraphConfig, GraphSeries
 from bluepilot.ui.widgets.debug.angle_factor_adjuster import AngleFactorAdjuster
 
@@ -82,8 +83,9 @@ class LateralDebugPanel(Widget):
       self._graph.set_extra_legend([
         ("Steer Delay", f"{self._steer_delay:.3f}s"),
       ])
-    except (KeyError, AttributeError, ValueError):
-      pass
+    except Exception as exc:
+      detail = debug_errors.report("lateral", exc)
+      self._graph.set_extra_legend([("ERROR", detail)])
 
   def _render(self, rect: rl.Rectangle):
     self._graph.render(rect)

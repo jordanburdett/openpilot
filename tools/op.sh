@@ -333,6 +333,48 @@ function op_replay() {
   op_run_command openpilot/tools/replay/replay "$@"
 }
 
+# BluePilot: the gate to pass before putting code on the device.
+#
+# Static checks and unit tests catch schema drift and dead code, but they cannot catch a
+# car-specific path that only executes while driving -- that is what put a RadarPoint.aRel
+# crash on the road. The replay stage closes that gap by running the real CAN from the
+# device's last drive through CarInterface, RadarInterface, CarController and panda safety.
+#
+#   op preflight            lint + tests + replay the device's newest route
+#   op preflight --no-device  skip the replay stage (no device on the network)
+function op_preflight() {
+  op_before_cmd
+
+  local skip_device=0
+  local args=()
+  for a in "$@"; do
+    case "$a" in
+      --no-device ) skip_device=1 ;;
+      * ) args+=("$a") ;;
+    esac
+  done
+
+  # Scoped to the trees this fork owns and keeps clean. `op lint` runs the full-tree check,
+  # which still reports inherited upstream debt in openpilot/selfdrive -- fixing that means
+  # touching upstream lines and inviting sync conflicts, so it is deliberately not a gate here.
+  echo -e "${BOLD}[1/3] lint (fork-owned trees)${NC}"
+  op_run_command ruff check bluepilot openpilot/sunnypilot opendbc_repo/opendbc/sunnypilot \
+                 opendbc_repo/opendbc/car/ford tools || return 1
+
+  echo -e "${BOLD}[2/3] unit tests${NC}"
+  op_run_command tools/test_runner.py bluepilot opendbc_repo/opendbc/sunnypilot/car/ford \
+                 openpilot/selfdrive/ui openpilot/sunnypilot || return 1
+
+  if [[ $skip_device -eq 1 ]]; then
+    echo -e "${BOLD}[3/3] replay${NC} -- skipped (--no-device)"
+    echo -e "${RED}warning:${NC} driving-only code paths were NOT exercised"
+    return 0
+  fi
+
+  echo -e "${BOLD}[3/3] replay last drive from device${NC}"
+  op_run_command openpilot/tools/replay_car_model.py --device "${args[@]}"
+}
+
 function op_cabana() {
   op_before_cmd
   op_run_command openpilot/tools/cabana/cabana "$@"
@@ -458,6 +500,7 @@ function op_default() {
   echo -e "  ${BOLD}lint${NC}         Run the linter"
   echo -e "  ${BOLD}post-commit${NC}  Install the linter as a post-commit hook"
   echo -e "  ${BOLD}test${NC}         Run all unit tests"
+  echo -e "  ${BOLD}preflight${NC}    Lint, test, and replay the device's last drive before flashing"
   echo ""
   echo -e "${BOLD}${UNDERLINE}Options:${NC}"
   echo -e "  ${BOLD}-d, --dir${NC}"
@@ -501,6 +544,7 @@ function _op() {
     lint )          shift 1; op_lint "$@" ;;
     test )          shift 1; op_test "$@" ;;
     replay )        shift 1; op_replay "$@" ;;
+    preflight )     shift 1; op_preflight "$@" ;;
     clip )          shift 1; op_clip "$@" ;;
     sim )           shift 1; op_sim "$@" ;;
     switch )        shift 1; op_switch "$@" ;;

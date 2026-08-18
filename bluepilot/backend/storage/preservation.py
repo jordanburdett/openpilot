@@ -7,8 +7,6 @@ Route preservation, deletion risk calculation, and disk space management
 import os
 import time
 import logging
-from functools import lru_cache
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +32,7 @@ except ImportError:
 
 # Import disk space utilities
 try:
-    from openpilot.system.loggerd.config import get_available_bytes, get_available_percent
+    from openpilot.system.loggerd.config import get_available_bytes, get_available_percent  # noqa: F401 -- import guard -- presence is the check
     from openpilot.system.loggerd.deleter import MIN_BYTES, MIN_PERCENT
     from openpilot.system.loggerd.uploader import listdir_by_creation
     DISK_SPACE_UTILS_AVAILABLE = True
@@ -75,7 +73,7 @@ def has_preserve_xattr_segment(segment_path: str) -> bool:
         return False
     try:
         return getxattr(segment_path, PRESERVE_ATTR_NAME) == PRESERVE_ATTR_VALUE
-    except:
+    except OSError:
         return False
 
 
@@ -136,7 +134,7 @@ def has_lock_file(segment_path: str) -> bool:
     try:
         full_path = os.path.join(ROUTES_DIR, segment_path)
         return any(name.endswith(".lock") for name in os.listdir(full_path))
-    except:
+    except OSError:
         return False
 
 
@@ -306,7 +304,7 @@ def get_cached_deletion_data():
     """
     global _deletion_data_cache, _deletion_data_cache_time
 
-    current_time = time.time()
+    current_time = time.monotonic()
 
     # Check if cache is still valid
     if _deletion_data_cache is not None and (current_time - _deletion_data_cache_time) < DELETION_DATA_CACHE_TTL:

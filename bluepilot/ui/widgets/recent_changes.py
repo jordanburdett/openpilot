@@ -157,7 +157,6 @@ class RecentChangesDialog(Widget):
     if self._cached_width == content_width and self._content_height > 0:
       return self._content_height
 
-    font = gui_app.font(FontWeight.SEMI_BOLD)
     item_font = gui_app.font(FontWeight.NORMAL)
     line_height = FONT_SCALE
     y = 0.0
@@ -166,7 +165,7 @@ class RecentChangesDialog(Widget):
     y += BADGE_PAD_Y * 2 + BADGE_FONT_SIZE * line_height + SECTION_SPACING
 
     # Each category section
-    for title, _color, items in self._sections:
+    for _title, _color, items in self._sections:
       # Frame top padding
       y += FRAME_PADDING
       # Category title

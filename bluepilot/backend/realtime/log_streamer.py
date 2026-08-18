@@ -7,7 +7,6 @@ Streams manager logs in real-time via WebSocket
 
 import logging
 import threading
-from typing import Optional
 
 from bluepilot.backend.logs import parse_manager_log_line
 
@@ -25,7 +24,7 @@ class LogStreamer:
             websocket_broadcaster: WebSocketBroadcaster instance
         """
         self.broadcaster = websocket_broadcaster
-        self.thread: Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
         self.running = False
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -42,8 +41,8 @@ class LogStreamer:
                 import openpilot.cereal.messaging as messaging
 
                 self._sock = messaging.sub_sock('logMessage', timeout=1000, conflate=True)
-            except Exception as exc:
-                logger.error("Unable to access logMessage stream: %s", exc)
+            except Exception:
+                logger.exception("Unable to access logMessage stream: %s")
                 self._broadcast_status('error', 'log stream unavailable')
                 return False
 
@@ -91,8 +90,8 @@ class LogStreamer:
         """Read logs from messaging stream and broadcast"""
         try:
             import openpilot.cereal.messaging as messaging
-        except Exception as exc:
-            logger.error("Unable to import messaging for log stream: %s", exc)
+        except Exception:
+            logger.exception("Unable to import messaging for log stream: %s")
             self._broadcast_status('error', 'messaging unavailable')
             self.running = False
             return
@@ -117,8 +116,8 @@ class LogStreamer:
                         'line': formatted
                     })
 
-        except Exception as exc:
-            logger.error("Error reading log stream: %s", exc)
+        except Exception:
+            logger.exception("Error reading log stream: %s")
             self._broadcast_status('error', 'Log stream error')
         finally:
             self.running = False
@@ -140,7 +139,7 @@ class LogStreamer:
 
 
 # Global log streamer instance
-_log_streamer: Optional[LogStreamer] = None
+_log_streamer: LogStreamer | None = None
 
 
 def get_log_streamer(websocket_broadcaster=None):

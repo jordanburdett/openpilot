@@ -64,12 +64,12 @@ def get_file_size(path):
 
     total = 0
     try:
-        for dirpath, dirnames, filenames in os.walk(path):
+        for dirpath, _dirnames, filenames in os.walk(path):
             for filename in filenames:
                 filepath = os.path.join(dirpath, filename)
                 if os.path.exists(filepath):
                     total += os.path.getsize(filepath)
-    except:
+    except OSError:
         pass
     return total
 
@@ -142,8 +142,8 @@ def get_disk_space_info():
                 'used': format_size(total_bytes - available_bytes)
             }
         }
-    except Exception as e:
-        logger.error(f"Error getting disk space info: {e}")
+    except Exception:
+        logger.exception("Error getting disk space info")
         # Return safe defaults on error
         return {
             'available_bytes': MIN_BYTES + 1,

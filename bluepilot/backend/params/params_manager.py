@@ -11,15 +11,15 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
 # Import Params with fallback for direct file reading
 PARAMS_DIR = "/data/params/d"
 USE_DIRECT_FILE_READING = False
-_PARAM_TYPE_CACHE: Optional[Dict[str, str]] = None
-_PARAM_ATTRIBUTES_CACHE: Optional[Dict[str, List[str]]] = None
+_PARAM_TYPE_CACHE: dict[str, str] | None = None
+_PARAM_ATTRIBUTES_CACHE: dict[str, list[str]] | None = None
 
 CAR_PARAM_KEYS = {
     "CarParams", "CarParamsCache", "CarParamsPersistent", "CarParamsPrevRoute",
@@ -92,8 +92,8 @@ except ImportError as e:
                 with open(param_path, 'wb') as f:
                     f.write(value)
                 return 0
-            except Exception as e:
-                logger.error(f"Error writing param {key}: {e}")
+            except Exception:
+                logger.exception(f"Error writing param {key}")
                 return -1
 
         def put_bool(self, key, value):
@@ -133,14 +133,20 @@ CRITICAL_PARAMS = {
 }
 
 # Cache for BluePilot panel params (loaded from JSON files)
-_BLUEPILOT_PARAMS_CACHE: Optional[set] = None
+_BLUEPILOT_PARAMS_CACHE: set | None = None
 
 
 def _load_bluepilot_params() -> set:
-    """Load all param names from BluePilot panel JSON files.
+    """Load all param names owned by BluePilot.
 
-    Params defined in panel JSONs are considered 'BluePilot' params.
-    All other params are considered 'System' params.
+    Params declared by BluePilot are 'BluePilot'; everything else is 'System'.
+
+    Primary source is bluepilot/params/params.json, which is the file that actually
+    declares BP-owned params (and is already read by _load_param_types above). The
+    legacy selfdrive/ui/bluepilot/menus/*.json panels are still scanned if present,
+    but that directory does not exist in this tree -- it was the only source before,
+    which meant this returned an empty set and categorize_param() labelled every
+    param 'System'.
     """
     global _BLUEPILOT_PARAMS_CACHE
     if _BLUEPILOT_PARAMS_CACHE is not None:
@@ -148,9 +154,22 @@ def _load_bluepilot_params() -> set:
 
     bp_params: set = set()
 
-    # Find panel JSON files
     repo_root = Path(__file__).resolve().parents[3]  # Go up to openpilot root
+
+    # Primary source: BluePilot's own param declarations
+    try:
+        params_json_path = repo_root / "bluepilot" / "params" / "params.json"
+        if params_json_path.exists():
+            with open(params_json_path) as f:
+                data = json.load(f)
+            entries = data.get("params", []) if isinstance(data, dict) else data
+            bp_params.update(p["name"] for p in entries if isinstance(p, dict) and "name" in p)
+    except Exception as e:
+        logger.debug(f"Failed to read bluepilot params.json for categorization: {e}")
+
+    # Legacy source: panel JSON files, if this tree still has them
     panel_dirs = [
+        repo_root / "openpilot" / "selfdrive" / "ui" / "bluepilot" / "menus",
         repo_root / "selfdrive" / "ui" / "bluepilot" / "menus",
     ]
 
@@ -160,7 +179,7 @@ def _load_bluepilot_params() -> set:
 
         for json_file in panel_dir.glob("*.json"):
             try:
-                with open(json_file, 'r') as f:
+                with open(json_file) as f:
                     panel_data = json.load(f)
 
                 # Extract params from all controls in all groups
@@ -190,7 +209,7 @@ def _load_bluepilot_params() -> set:
                            "clearOnOnroadTransitionParams", "clearOnOffroadTransitionParams"]:
                     bp_params.update(panel_data.get(key, []))
 
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.debug(f"Error reading panel file {json_file}: {e}")
                 continue
 
@@ -199,13 +218,13 @@ def _load_bluepilot_params() -> set:
     return bp_params
 
 
-def _load_param_type_cache() -> Dict[str, str]:
+def _load_param_type_cache() -> dict[str, str]:
     """Parse common/params_keys.h and bluepilot/params/params.json to know declared types."""
     global _PARAM_TYPE_CACHE
     if _PARAM_TYPE_CACHE is not None:
         return _PARAM_TYPE_CACHE
 
-    cache: Dict[str, str] = {}
+    cache: dict[str, str] = {}
 
     # First, load from common/params_keys.h (openpilot core params)
     try:
@@ -225,7 +244,7 @@ def _load_param_type_cache() -> Dict[str, str]:
         repo_root = Path(__file__).resolve().parents[3]  # Go up to openpilot root
         params_json_path = repo_root / "bluepilot" / "params" / "params.json"
         if params_json_path.exists():
-            with open(params_json_path, 'r') as f:
+            with open(params_json_path) as f:
                 bp_params_data = json.load(f)
             # params.json has structure: {"params": [...]}
             params_list = bp_params_data.get("params", []) if isinstance(bp_params_data, dict) else bp_params_data
@@ -240,7 +259,7 @@ def _load_param_type_cache() -> Dict[str, str]:
     return cache
 
 
-def _load_param_attributes_cache() -> Dict[str, List[str]]:
+def _load_param_attributes_cache() -> dict[str, list[str]]:
     """Parse common/params_keys.h to extract ParamKeyAttributes flags.
 
     Returns a dict mapping param key to list of attribute flags like:
@@ -250,7 +269,7 @@ def _load_param_attributes_cache() -> Dict[str, List[str]]:
     if _PARAM_ATTRIBUTES_CACHE is not None:
         return _PARAM_ATTRIBUTES_CACHE
 
-    cache: Dict[str, List[str]] = {}
+    cache: dict[str, list[str]] = {}
     try:
         repo_root = Path(__file__).resolve().parents[3]  # Go up to openpilot root
         header_path = repo_root / "common" / "params_keys.h"
@@ -282,7 +301,7 @@ def _load_param_attributes_cache() -> Dict[str, List[str]]:
     return cache
 
 
-def write_param_direct(key: str, value: Any) -> Tuple[bool, Optional[str]]:
+def write_param_direct(key: str, value: Any) -> tuple[bool, str | None]:
     """Directly write a parameter file when Params API rejects the key."""
     try:
         os.makedirs(PARAMS_DIR, exist_ok=True)
@@ -300,8 +319,25 @@ def write_param_direct(key: str, value: Any) -> Tuple[bool, Optional[str]]:
         return True, None
 
     except Exception as e:
-        logger.error(f"Direct param write failed for {key}: {e}")
+        logger.exception(f"Direct param write failed for {key}")
         return False, str(e)
+
+
+# The categories categorize_param() can return, with display metadata.
+#
+# This was referenced by get_all_params() and get_params_by_category() but never defined
+# anywhere in the tree, so both raised NameError -- /api/params/categories has returned a
+# 500 since the endpoint was added. Keep the keys in sync with categorize_param().
+PARAM_CATEGORIES: dict[str, dict[str, Any]] = {
+    "BluePilot": {
+        "name": "BluePilot",
+        "description": "Parameters declared by BluePilot",
+    },
+    "System": {
+        "name": "System",
+        "description": "openpilot and sunnypilot parameters",
+    },
+}
 
 
 def categorize_param(key: str) -> str:
@@ -322,7 +358,7 @@ def categorize_param(key: str) -> str:
     return "System"
 
 
-def get_all_params(params: Optional[Params] = None) -> Dict[str, Any]:
+def get_all_params(params: Params | None = None) -> dict[str, Any]:
     """Get all readable parameters
 
     Args:
@@ -343,14 +379,13 @@ def get_all_params(params: Optional[Params] = None) -> Dict[str, Any]:
         # List all param files
         try:
             param_keys = os.listdir(params_dir)
-        except Exception as e:
-            logger.error(f"Error listing params directory: {e}")
+        except Exception:
+            logger.exception("Error listing params directory")
             param_keys = []
     else:
-        # Fallback to known params
-        param_keys = []
-        for category_info in PARAM_CATEGORIES.values():
-            param_keys.extend(category_info["params"])
+        # Fallback to known params. Off-device there is no /data/params/d to list, so the
+        # best available set is what BluePilot declares.
+        param_keys = sorted(_load_bluepilot_params())
 
     for key in param_keys:
         result[key] = _build_param_entry(key, params, params_dir)
@@ -358,7 +393,7 @@ def get_all_params(params: Optional[Params] = None) -> Dict[str, Any]:
     return result
 
 
-def get_param_value(key: str, params: Optional[Params] = None) -> Union[str, bool, int, float, None]:
+def get_param_value(key: str, params: Params | None = None) -> Union[str, bool, int, float, None]:
     """Get a single parameter value with best-effort decoding."""
     entry = _build_param_entry(key, params)
     return entry.get("value")
@@ -383,7 +418,7 @@ def determine_param_type(value: Any) -> str:
     return "string"
 
 
-def _get_param_type_name(params: Params, key: str) -> Optional[str]:
+def _get_param_type_name(params: Params, key: str) -> str | None:
     getter = getattr(params, 'get_type', None)
     if callable(getter):
         try:
@@ -399,7 +434,7 @@ def _get_param_type_name(params: Params, key: str) -> Optional[str]:
     return _load_param_type_cache().get(key)
 
 
-def _normalize_param_value(value: Any, target_type: Optional[str] = None) -> Any:
+def _normalize_param_value(value: Any, target_type: str | None = None) -> Any:
     """Attempt to coerce common string representations into bool or numeric values."""
     if isinstance(value, str):
         stripped = value.strip()
@@ -426,7 +461,7 @@ def _normalize_param_value(value: Any, target_type: Optional[str] = None) -> Any
     return value
 
 
-def set_param_value(key: str, value: Any, params: Optional[Params] = None) -> Dict[str, Any]:
+def set_param_value(key: str, value: Any, params: Params | None = None) -> dict[str, Any]:
     """Set a parameter value with validation
 
     Args:
@@ -486,14 +521,14 @@ def set_param_value(key: str, value: Any, params: Optional[Params] = None) -> Di
         }
 
     except Exception as e:
-        logger.error(f"Error setting param {key}: {e}")
+        logger.exception(f"Error setting param {key}")
         return {
             "success": False,
             "error": f"Failed to update parameter: {str(e)}"
         }
 
 
-def _build_param_entry(key: str, params: Optional[Params], params_dir: Optional[str] = None) -> Dict[str, Any]:
+def _build_param_entry(key: str, params: Params | None, params_dir: str | None = None) -> dict[str, Any]:
     if params is None:
         params = Params()
 
@@ -504,7 +539,7 @@ def _build_param_entry(key: str, params: Optional[Params], params_dir: Optional[
     attributes_cache = _load_param_attributes_cache()
     param_attributes = attributes_cache.get(key, [])
 
-    entry: Dict[str, Any] = {
+    entry: dict[str, Any] = {
         "key": key,
         "category": categorize_param(key),
         "readonly": key in READONLY_PARAMS,
@@ -532,7 +567,7 @@ def _build_param_entry(key: str, params: Optional[Params], params_dir: Optional[
     return entry
 
 
-def _read_param_value(params: Params, key: str, param_type: Optional[str]) -> Any:
+def _read_param_value(params: Params, key: str, param_type: str | None) -> Any:
     """Read a parameter using the most appropriate getter based on its declared type."""
     if param_type == "bool":
         return params.get_bool(key)
@@ -575,9 +610,9 @@ def _read_param_value(params: Params, key: str, param_type: Optional[str]) -> An
     return value
 
 
-def _format_value_for_response(key: str, value: Any, param_type: Optional[str]) -> Tuple[Any, Dict[str, Any]]:
+def _format_value_for_response(key: str, value: Any, param_type: str | None) -> tuple[Any, dict[str, Any]]:
     """Prepare a JSON-serializable value plus extra metadata for UI consumption."""
-    metadata: Dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
 
     if value is None:
         return None, metadata
@@ -614,7 +649,7 @@ def _format_value_for_response(key: str, value: Any, param_type: Optional[str]) 
     return value, metadata
 
 
-def decode_bytes_param(key: str, raw_bytes: bytes) -> Optional[Dict[str, Any]]:
+def decode_bytes_param(key: str, raw_bytes: bytes) -> dict[str, Any] | None:
     """Decode known byte-encoded params into structured data for UI consumption."""
     if not raw_bytes:
         return None
@@ -652,7 +687,7 @@ def decode_bytes_param(key: str, raw_bytes: bytes) -> Optional[Dict[str, Any]]:
         stripped = None
 
     if stripped:
-        if stripped.startswith('{') or stripped.startswith('['):
+        if stripped.startswith(('{', '[')):
             try:
                 parsed = json.loads(stripped)
                 preview = "JSON object" if isinstance(parsed, dict) else "JSON array"
@@ -680,7 +715,7 @@ def decode_bytes_param(key: str, raw_bytes: bytes) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _get_param_mtime(params_dir: Optional[str], key: str) -> Optional[float]:
+def _get_param_mtime(params_dir: str | None, key: str) -> float | None:
     if not params_dir:
         return None
     try:
@@ -692,7 +727,7 @@ def _get_param_mtime(params_dir: Optional[str], key: str) -> Optional[float]:
     return None
 
 
-def get_params_by_category(params: Optional[Params] = None) -> Dict[str, Any]:
+def get_params_by_category(params: Params | None = None) -> dict[str, Any]:
     """Get all parameters organized by category
 
     Args:
@@ -714,6 +749,8 @@ def get_params_by_category(params: Optional[Params] = None) -> Dict[str, Any]:
     # Organize params into categories
     for param_data in all_params.values():
         category = param_data["category"]
+        if category not in result:  # categorize_param() grew a category we don't describe
+            result[category] = {"name": category, "description": "", "params": []}
         result[category]["params"].append(param_data)
 
     # Sort params within each category
@@ -723,7 +760,7 @@ def get_params_by_category(params: Optional[Params] = None) -> Dict[str, Any]:
     return result
 
 
-def search_params(query: str, params: Optional[Params] = None) -> List[Dict[str, Any]]:
+def search_params(query: str, params: Params | None = None) -> list[dict[str, Any]]:
     """Search parameters by key or value
 
     Args:

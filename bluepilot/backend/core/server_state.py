@@ -34,7 +34,7 @@ class ServerState:
         self._active_ffmpeg_count = 0
         self._error_log = []  # Circular buffer of recent errors
         self._max_errors = 50  # Keep last 50 errors
-        self._server_start_time = time.time()
+        self._server_start_time = time.monotonic()
         self._route_exports = {}
         self._export_threads = {}
 
@@ -86,7 +86,7 @@ class ServerState:
         """Register FFmpeg process with tracking info"""
         with self._lock:
             self._ffmpeg_processes[pid] = {
-                'start_time': time.time(),
+                'start_time': time.time(),  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 'route': route_info
             }
             self._active_ffmpeg_count += 1
@@ -114,7 +114,7 @@ class ServerState:
         with self._lock:
             error_entry = {
                 'timestamp': datetime.now().isoformat(),
-                'unix_time': time.time(),
+                'unix_time': time.time(),  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 'level': level,  # 'ERROR', 'WARNING', 'CRITICAL'
                 'message': message,
                 'details': details,
@@ -152,7 +152,7 @@ class ServerState:
 
     def get_server_uptime(self):
         """Get server uptime in seconds"""
-        return time.time() - self._server_start_time
+        return time.monotonic() - self._server_start_time
 
     def clear_error_log(self):
         """Clear the error log"""
@@ -172,7 +172,7 @@ class ServerState:
             if info and info.get('status') == 'processing':
                 return False
 
-            now = time.time()
+            now = time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             self._route_exports[key] = {
                 'status': 'processing',
                 'message': message,
@@ -188,9 +188,9 @@ class ServerState:
         with self._lock:
             info = self._route_exports.setdefault(key, {})
             if 'started_at' not in info:
-                info['started_at'] = updates.get('started_at', time.time())
+                info['started_at'] = updates.get('started_at', time.time())  # noqa: TID251 -- wall-clock timestamp serialized to the API
             info.update(updates)
-            info['updated_at'] = time.time()
+            info['updated_at'] = time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             self._route_exports[key] = info
             return dict(info)
 
@@ -249,7 +249,7 @@ class ServerState:
                 'status': 'processing',
                 'progress': 0.0,
                 'message': message,
-                'started_at': time.time()
+                'started_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             }
             return True
 
@@ -272,7 +272,7 @@ class ServerState:
                     'progress': 1.0,
                     'message': message,
                     'path': path,
-                    'completed_at': time.time()
+                    'completed_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 })
                 return self._route_exports[key].copy()
             return {}
@@ -323,7 +323,7 @@ class ServerState:
                 'status': 'processing',
                 'progress': 0.0,
                 'message': message,
-                'started_at': time.time()
+                'started_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             }
             return True
 
@@ -346,7 +346,7 @@ class ServerState:
                     'progress': 1.0,
                     'message': message,
                     'path': path,
-                    'completed_at': time.time()
+                    'completed_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 })
                 return self._route_exports[key].copy()
             return {}
@@ -397,7 +397,7 @@ class ServerState:
                 'status': 'processing',
                 'progress': 0.0,
                 'message': message,
-                'started_at': time.time()
+                'started_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             }
             return True
 
@@ -420,7 +420,7 @@ class ServerState:
                     'progress': 1.0,
                     'message': message,
                     'routeName': route_name,
-                    'completed_at': time.time()
+                    'completed_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 })
                 return self._route_exports[key].copy()
             return {}
@@ -458,7 +458,7 @@ class ServerState:
                 'message': message,
                 'total_files': total_files,
                 'files_processed': 0,
-                'started_at': time.time()
+                'started_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
             }
             return True
 
@@ -468,7 +468,7 @@ class ServerState:
         with self._lock:
             if key in self._route_exports:
                 self._route_exports[key].update(updates)
-                self._route_exports[key]['updated_at'] = time.time()
+                self._route_exports[key]['updated_at'] = time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 return self._route_exports[key].copy()
             return {}
 
@@ -481,7 +481,7 @@ class ServerState:
                     'status': 'ready',
                     'progress': 1.0,
                     'message': message,
-                    'completed_at': time.time()
+                    'completed_at': time.time()  # noqa: TID251 -- wall-clock timestamp serialized to the API
                 })
                 return self._route_exports[key].copy()
             return {}

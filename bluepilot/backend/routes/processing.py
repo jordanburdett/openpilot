@@ -53,16 +53,17 @@ def atomic_json_write(filepath, data):
                 os.remove(temp_path)
             raise e
 
-    except Exception as e:
-        logger.error(f"Atomic JSON write failed for {filepath}: {e}")
+    except Exception:
+        logger.exception(f"Atomic JSON write failed for {filepath}")
         return False
 
 # Configuration paths
 ROUTES_DIR = "/data/media/0/realdata" if os.path.exists("/data/media/0/realdata") else os.path.expanduser("~/comma_data/media/0/realdata")
 METRICS_CACHE = "/data/bluepilot/routes/metrics_cache" if os.path.exists("/data") else os.path.expanduser("~/comma_data/bluepilot/routes/metrics_cache")
-THUMBNAIL_CACHE = "/data/bluepilot/routes/thumbs_cache" if os.path.exists("/data") else os.path.expanduser("~/comma_data/bluepilot/routes/thumbs_cache")
-FINGERPRINT_CACHE = "/data/bluepilot/routes/fingerprint_cache" if os.path.exists("/data") else os.path.expanduser("~/comma_data/bluepilot/routes/fingerprint_cache")
-DRIVE_STATS_CACHE = "/data/bluepilot/routes/drive_stats_cache" if os.path.exists("/data") else os.path.expanduser("~/comma_data/bluepilot/routes/drive_stats_cache")
+_CACHE_ROOT = "/data/bluepilot/routes" if os.path.exists("/data") else os.path.expanduser("~/comma_data/bluepilot/routes")
+THUMBNAIL_CACHE = f"{_CACHE_ROOT}/thumbs_cache"
+FINGERPRINT_CACHE = f"{_CACHE_ROOT}/fingerprint_cache"
+DRIVE_STATS_CACHE = f"{_CACHE_ROOT}/drive_stats_cache"
 
 # Ensure cache directories exist
 os.makedirs(METRICS_CACHE, exist_ok=True)
@@ -115,7 +116,7 @@ def load_geocoding_cache():
 def save_geocoding_cache():
     """Save geocoding cache to disk atomically"""
     if not atomic_json_write(GEOCODE_CACHE_FILE, _geocoding_cache):
-        logger.warning(f"Error saving geocoding cache")
+        logger.warning("Error saving geocoding cache")
 
 
 # Load cache on module import
@@ -426,8 +427,7 @@ def generate_thumbnail(route_base):
         # Run FFmpeg with 15 second timeout (same as Qt version)
         result = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=15,
             check=False
         )
@@ -444,8 +444,8 @@ def generate_thumbnail(route_base):
     except subprocess.TimeoutExpired:
         logger.warning(f"FFmpeg timeout while generating thumbnail for {route_base}")
         return None
-    except Exception as e:
-        logger.error(f"Error generating thumbnail for {route_base}: {e}")
+    except Exception:
+        logger.exception(f"Error generating thumbnail for {route_base}")
         return None
 
 
@@ -713,7 +713,7 @@ def extract_drive_stats_from_segments(segments):
     if not use_logreader:
         try:
             import openpilot.cereal.messaging as messaging
-            from openpilot.cereal import log as log_capnp
+            from openpilot.cereal import log as log_capnp  # noqa: F401 -- import guard -- presence is the check
             import bz2
             import subprocess
 
@@ -1202,7 +1202,7 @@ def process_route(route_base, segments, check_idle_fn=None):
                 try:
                     # Reload existing cache and add location data
                     if os.path.exists(cache_file):
-                        with open(cache_file, 'r') as f:
+                        with open(cache_file) as f:
                             cached_data = json.load(f)
                     else:
                         cached_data = {}

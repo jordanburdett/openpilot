@@ -5,7 +5,7 @@ Route metadata helpers shared across endpoints and scanners.
 
 import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Any
 
 from bluepilot.backend.routes.parsing import (
     parse_route_datetime,
@@ -30,7 +30,7 @@ from bluepilot.backend.routes.processing import (
 from bluepilot.backend.video.metadata import get_video_files
 
 
-def build_route_metadata(route_base: str, segments: List[Dict[str, Any]], params) -> Dict[str, Any]:
+def build_route_metadata(route_base: str, segments: list[dict[str, Any]], params) -> dict[str, Any]:
     """
     Build full route metadata payload used by the /api/routes/{route} endpoint.
 

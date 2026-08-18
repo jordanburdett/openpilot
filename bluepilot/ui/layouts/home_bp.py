@@ -163,7 +163,7 @@ class HomeLayoutBP(HomeLayout):
       available_right = self.header_rect.x + self.header_rect.width
       badge_x = available_right - total_badges_width
 
-      for i, (text, width) in enumerate(zip(self._badge_parts, badge_widths)):
+      for i, (text, width) in enumerate(zip(self._badge_parts, badge_widths, strict=True)):
         accent_color = BADGE_CONFIGS[i] if i < len(BADGE_CONFIGS) else BPColors.BADGE_BRAND
         self._draw_badge(badge_x, badge_y, width, badge_h, text, accent_color, badge_font)
         badge_x += width + BADGE_SPACING

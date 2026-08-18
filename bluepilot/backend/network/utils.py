@@ -5,6 +5,7 @@ Network interface detection and connection type management
 """
 
 import logging
+import subprocess
 
 from bluepilot.backend.utils.params_fallback import get_params_with_defaults
 
@@ -31,7 +32,7 @@ def should_server_run():
     """Check if server should be running (always runs when enabled, rate-limited onroad)"""
     try:
         return params.get_bool("EnableWebRoutesServer")
-    except:
+    except Exception:
         return True  # Default to running if we can't check
 
 
@@ -49,7 +50,6 @@ def get_wifi_ip():
                             return ip
     except ImportError:
         # Fallback without netifaces
-        import subprocess
         try:
             result = subprocess.run(['ip', 'addr', 'show', 'wlan0'],
                                     capture_output=True, text=True, timeout=2)
@@ -57,7 +57,7 @@ def get_wifi_ip():
                 if 'inet ' in line:
                     ip = line.strip().split()[1].split('/')[0]
                     return ip
-        except:
+        except (OSError, subprocess.SubprocessError, IndexError):
             pass
     return None
 
@@ -87,7 +87,6 @@ def get_all_wifi_ips():
 def get_connection_type():
     """Determine current network connection type"""
     try:
-        import subprocess
         # Check which interface is being used for default route
         result = subprocess.run(['ip', 'route', 'get', '8.8.8.8'],
                                 capture_output=True, text=True, timeout=2)
@@ -101,5 +100,5 @@ def get_connection_type():
             return 'ethernet'
         else:
             return 'unknown'
-    except:
+    except (OSError, subprocess.SubprocessError):
         return 'unknown'

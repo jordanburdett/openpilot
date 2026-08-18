@@ -48,21 +48,21 @@ FORD_INACTIVE_CURVATURE_RATE = 4096
 FORD_INACTIVE_PATH_OFFSET = 512
 FORD_INACTIVE_PATH_ANGLE = 1000
 
-STEERING = dict(  # FORD_LIMITS values, with the 150-unit (0.003) pinion band; stock band is 100
-  max_angle=1000, deg_to_can=50000, max_angle_error=150,
-  rate_up=([5., 16., 25.], [0.0025, 0.0014, 0.00018]),
-  rate_down=([5., 16., 25.], [0.0025, 0.0014, 0.00018]),
-  angle_error_min_speed=10.0,
-)
-PATH_ANGLE = dict(  # FORD_PATH_ANGLE_LIMITS
-  deg_to_can=2000, rate_up=([10., 15., 25.], [0.0561, 0.04335, 0.00918]),
-)
-PATH_OFFSET = dict(  # FORD_PATH_OFFSET_LIMITS
-  deg_to_can=100, rate_up=([5., 15., 25.], [0.05, 0.025, 0.01]),
-)
-CURV_RATE = dict(  # FORD_CURVATURE_RATE_LIMITS_CAN
-  deg_to_can=4000000, rate_up=([5., 15., 25.], [0.05, 0.025, 0.01]),
-)
+STEERING = {  # FORD_LIMITS values, with the 150-unit (0.003) pinion band; stock band is 100
+  'max_angle': 1000, 'deg_to_can': 50000, 'max_angle_error': 150,
+  'rate_up': ([5., 16., 25.], [0.0025, 0.0014, 0.00018]),
+  'rate_down': ([5., 16., 25.], [0.0025, 0.0014, 0.00018]),
+  'angle_error_min_speed': 10.0,
+}
+PATH_ANGLE = {  # FORD_PATH_ANGLE_LIMITS
+  'deg_to_can': 2000, 'rate_up': ([10., 15., 25.], [0.0561, 0.04335, 0.00918]),
+}
+PATH_OFFSET = {  # FORD_PATH_OFFSET_LIMITS
+  'deg_to_can': 100, 'rate_up': ([5., 15., 25.], [0.05, 0.025, 0.01]),
+}
+CURV_RATE = {  # FORD_CURVATURE_RATE_LIMITS_CAN
+  'deg_to_can': 4000000, 'rate_up': ([5., 15., 25.], [0.05, 0.025, 0.01]),
+}
 
 FORD_CURVATURE_MIN, FORD_CURVATURE_MAX = -0.02, 0.02
 FORD_CURVATURE_RATE_MIN, FORD_CURVATURE_RATE_MAX = -0.001024, 0.00102375

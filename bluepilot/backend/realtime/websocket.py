@@ -114,7 +114,6 @@ class WebSocketBroadcaster:
     def _broadcast_via_http(self, event_data):
         """Broadcast via HTTP to the web server (cross-process)"""
         try:
-            import socket
             import urllib.request
             import urllib.error
 
@@ -136,7 +135,7 @@ class WebSocketBroadcaster:
         except urllib.error.URLError as e:
             # Server might not be running, that's okay
             logger.debug(f"Could not broadcast via HTTP (server may not be running): {e}")
-        except socket.timeout:
+        except TimeoutError:
             logger.debug("Broadcast HTTP request timed out")
         except Exception as e:
             logger.debug(f"Error broadcasting via HTTP: {e}")
