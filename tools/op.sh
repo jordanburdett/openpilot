@@ -362,8 +362,8 @@ function op_preflight() {
                  opendbc_repo/opendbc/car/ford tools || return 1
 
   echo -e "${BOLD}[2/3] unit tests${NC}"
-  op_run_command tools/test_runner.py bluepilot opendbc_repo/opendbc/sunnypilot/car/ford \
-                 openpilot/selfdrive/ui openpilot/sunnypilot || return 1
+  op_run_command tools/test_runner.py bluepilot openpilot/selfdrive/ui openpilot/sunnypilot \
+                 opendbc_repo/opendbc/car/ford opendbc_repo/opendbc/sunnypilot/car/ford || return 1
 
   if [[ $skip_device -eq 1 ]]; then
     echo -e "${BOLD}[3/3] replay${NC} -- skipped (--no-device)"
