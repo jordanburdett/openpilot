@@ -332,14 +332,18 @@ class OtherDebugPanel(Widget):
 
       def lead_rows(lead):
         return [
+          # aRel / dPath / fcw used to be here. They now live in RadarState.LeadData's
+          # `deprecated` group, so reading them top-level raised AttributeError -- silently
+          # swallowed by _update_tab_data, which is why this card rendered blank. radard
+          # doesn't populate them at all any more, so they're replaced with live values.
           ("Distance", f"{lead.dRel:.1f} m"),
           ("Y Position", f"{lead.yRel:.2f} m"),
           ("Rel. Speed", f"{lead.vRel:.2f} m/s"),
-          ("Rel. Accel", f"{lead.aRel:.2f} m/s\u00b2"),
           ("Lead Speed", f"{lead.vLead:.1f} m/s"),
-          ("Path Dist", f"{lead.dPath:.2f} m"),
+          ("Lead Accel", f"{lead.aLeadK:.2f} m/s\u00b2"),
+          ("Model Prob", f"{lead.modelProb:.2f}"),
           ("Status", _fmt_bool(lead.present, "Tracking", "No Lead")),
-          ("FCW", _fmt_bool(lead.fcw)),
+          ("Track ID", str(lead.radarTrackId)),
           ("Radar", _fmt_bool(lead.radar, "Yes", "Vision")),
         ]
 
@@ -377,14 +381,15 @@ class OtherDebugPanel(Widget):
         which = lat_tuning.which()
         if which == 'torque':
           t = lat_tuning.torque
+          # kp/ki/kf/kd moved into LateralTorqueTuning's `deprecated` group upstream; torque
+          # control is parameterised by latAccelFactor/friction now. Reading them raised and
+          # blanked the whole card to "N/A".
           lat_rows = [
             ("Type", "Torque"),
-            ("Kp", f"{t.kp:.4f}"),
-            ("Ki", f"{t.ki:.4f}"),
-            ("Kf", f"{t.kf:.4f}"),
             ("Friction", f"{t.friction:.4f}"),
             ("Lat Accel Factor", f"{t.latAccelFactor:.4f}"),
             ("Lat Accel Offset", f"{t.latAccelOffset:.4f}"),
+            ("Angle Deadzone", f"{t.steeringAngleDeadzoneDeg:.2f}°"),
           ]
         elif which == 'pid':
           p = lat_tuning.pid
@@ -405,17 +410,14 @@ class OtherDebugPanel(Widget):
       # Longitudinal tuning
       long_rows = []
       try:
+        # kpBP/kpV/kf moved into LongitudinalPIDTuning's `deprecated` group upstream; only the
+        # ki breakpoints remain live. Reading the others raised and blanked the card to "N/A".
         lt = cp.longitudinalTuning
-        kp_bp = [f"{v:.1f}" for v in list(lt.kpBP)]
-        kp_v = [f"{v:.4f}" for v in list(lt.kpV)]
         ki_bp = [f"{v:.1f}" for v in list(lt.kiBP)]
         ki_v = [f"{v:.4f}" for v in list(lt.kiV)]
         long_rows = [
-          ("Kp BP", ", ".join(kp_bp) if kp_bp else "N/A"),
-          ("Kp V", ", ".join(kp_v) if kp_v else "N/A"),
           ("Ki BP", ", ".join(ki_bp) if ki_bp else "N/A"),
           ("Ki V", ", ".join(ki_v) if ki_v else "N/A"),
-          ("Kf", f"{lt.kf:.6f}"),
         ]
       except (AttributeError, IndexError):
         long_rows = [("Status", "N/A")]

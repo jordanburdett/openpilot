@@ -13,8 +13,16 @@
 openpilot/selfdrive/car/tests/test_models_segs.txt filter=lfs diff=lfs merge=lfs -text
 openpilot/common/hardware/comma/updater filter=lfs diff=lfs merge=lfs -text
 
-# BluePilot: keep BP-owned binaries as raw git objects (not LFS) so they need no LFS hosting
-bluepilot/** -filter -diff -merge
+# BluePilot: keep BP-owned binaries as raw git objects (not LFS) so they need no LFS hosting.
+# -filter stays tree-wide (that's what keeps them out of LFS), but -diff/-merge must NOT be:
+# BluePilot applied all three to bluepilot/**, which also marked ~240 text source files
+# (.py/.ts/.tsx/.css/.md/.json) as binary. That renders their diffs unreadable and, worse,
+# disables git's 3-way merge on them -- so every upstream sync conflicts wholesale instead of
+# merging. Scope -diff/-merge to the handful of files that are actually binary.
+bluepilot/** -filter
+bluepilot/**/*.png -diff -merge
+bluepilot/**/*.ttf -diff -merge
+bluepilot/**/*.wasm -diff -merge
 openpilot/selfdrive/assets/icons_mici/onroad/bookmark_fill.png -filter -diff -merge
 openpilot/selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_center.png -filter -diff -merge
 openpilot/selfdrive/assets/icons_mici/settings/car_icon.png -filter -diff -merge
