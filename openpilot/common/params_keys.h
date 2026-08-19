@@ -317,6 +317,17 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FordLowSpeedFactor_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
     {"FordHighSpeedFactor_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
     {"FordHighSpeedDampening_ang", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    // BluePilot: angle-mode phase-lead knobs. The path_angle command blends the model's
+    // predicted curvature at t+T with the planner's current command:
+    //   requested = predicted(t+T) * b + desired * (1 - b)
+    // In steady state predicted == desired, so b changes PHASE, not steady-state gain -- it is
+    // the lever for a car whose response lags, where adding gain instead causes overshoot.
+    //   FordPathAngleBlendRatio = b
+    //   FordVLTBaseMax          = upper clamp on lateralDelay when forming T (T = clamped + DT_MDL)
+    //   FordVLTExtraMax         = extra lookahead above T, tapered out above 55 mph
+    {"FordPathAngleBlendRatio", {PERSISTENT | BACKUP, FLOAT, "0.50"}},
+    {"FordVLTBaseMax", {PERSISTENT | BACKUP, FLOAT, "0.15"}},
+    {"FordVLTExtraMax", {PERSISTENT | BACKUP, FLOAT, "0.10"}},
     {"BPLateralSchemeParamsMigratedV1", {PERSISTENT | BACKUP, STRING, "0"}},
 
     // BluePilot: angle-mode lane centering trim (advanced lane positioning) -- see

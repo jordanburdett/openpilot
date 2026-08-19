@@ -348,6 +348,53 @@ sections:
     - type: param
       key: FordPrefLateralControl
       equals: 1
+  - key: FordPathAngleBlendRatio
+    widget: option
+    title: '[Lateral Tuning] Path Angle Blend Ratio (Angle)'
+    description: >-
+      How much of the steering command comes from the model's PREDICTED curvature a
+      fraction of a second ahead, versus the planner's command for right now
+      (0 = planner only, 1 = prediction only). Default 0.50. This changes phase, not
+      steady-state gain -- raise it if the car under-turns and adding gain just makes it
+      snappy or ping-pong, which means it needs lead rather than more authority.
+    min: 0.0
+    max: 1.0
+    step: 0.05
+    default: 0.50
+    show_if:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 1
+  - key: FordVLTBaseMax
+    widget: option
+    title: '[Lateral Tuning] Lookahead Delay Cap (Angle)'
+    description: >-
+      Upper limit (seconds) on the learned steering delay when choosing how far ahead to
+      sample the model. Default 0.15. If your learned lateralDelay is higher than this, the
+      command carries less lead than the car's actual lag -- raise this toward that value to
+      close the gap. Affects phase only, not steady-state gain.
+    min: 0.10
+    max: 0.45
+    step: 0.01
+    default: 0.15
+    show_if:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 1
+  - key: FordVLTExtraMax
+    widget: option
+    title: '[Lateral Tuning] Extra Lookahead (Angle)'
+    description: >-
+      Additional lookahead (seconds) above the delay cap, at low speed and gentle curvature.
+      Tapers to zero above 55 mph, so it has no effect at highway speed. Default 0.10.
+    min: 0.0
+    max: 0.30
+    step: 0.01
+    default: 0.10
+    show_if:
+    - type: param
+      key: FordPrefLateralControl
+      equals: 1
   - key: lane_change_factor_high_ang
     widget: option
     title: '[Lateral Tuning] Lane Change Factor High (Angle)'
