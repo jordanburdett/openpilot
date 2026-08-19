@@ -328,6 +328,13 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FordPathAngleBlendRatio", {PERSISTENT | BACKUP, FLOAT, "0.50"}},
     {"FordVLTBaseMax", {PERSISTENT | BACKUP, FLOAT, "0.15"}},
     {"FordVLTExtraMax", {PERSISTENT | BACKUP, FLOAT, "0.10"}},
+    // BluePilot: continuous learning of angle-mode lateral gain (bluepilot/selfdrive/fordlatd.py).
+    // FordHighSpeedFactor_ang / FordLowSpeedFactor_ang stay the USER's preference and act as the
+    // anchor; the learner only stores a bounded delta against them, so changing your setting
+    // resets the correction. Learning is off by default and applies nothing when off.
+    {"FordAngleLearningEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FordAngleLearningReset", {PERSISTENT, BOOL, "0"}},
+    {"FordAngleLearned", {PERSISTENT | BACKUP, STRING, ""}},
     {"BPLateralSchemeParamsMigratedV1", {PERSISTENT | BACKUP, STRING, "0"}},
 
     // BluePilot: angle-mode lane centering trim (advanced lane positioning) -- see

@@ -2782,6 +2782,32 @@
           ]
         },
         {
+          "key": "FordAngleLearningEnabled",
+          "widget": "toggle",
+          "title": "[Lateral Tuning] Continuous Learning (Angle)",
+          "description": "Let the car tune its own steering gain as you drive. Your Low/High Speed Adjustment Factors stay the anchor -- learning only adds a small bounded correction on top of them (at most 0.15), so it starts from your preference rather than replacing it. Change either factor yourself and the correction for that speed band resets to zero. It moves at most 0.01 per update and needs several minutes of steady engaged driving per step. Two signals drive it: how closely the car achieves the curvature it was asked for, and how much it wanders in the lane -- wander wins, so it will not trade smoothness for accuracy. Off by default.",
+          "show_if": [
+            {
+              "type": "param",
+              "key": "FordPrefLateralControl",
+              "equals": 1
+            }
+          ]
+        },
+        {
+          "key": "FordAngleLearningReset",
+          "widget": "toggle",
+          "title": "[Lateral Tuning] Reset Learning to Manual (Angle)",
+          "description": "Discard everything learned and go back to exactly your Low/High Speed Adjustment Factors. Clears itself once applied.",
+          "show_if": [
+            {
+              "type": "param",
+              "key": "FordPrefLateralControl",
+              "equals": 1
+            }
+          ]
+        },
+        {
           "key": "lane_change_factor_high_ang",
           "widget": "option",
           "title": "[Lateral Tuning] Lane Change Factor High (Angle)",

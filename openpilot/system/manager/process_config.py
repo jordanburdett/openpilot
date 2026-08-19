@@ -204,9 +204,15 @@ if is_bluepilot():
     return params.get_bool("EnableWebRoutesServer")
   def _bp_route_preprocessor_enabled(started, params, CP):
     return params.get_bool("EnableWebRoutesServer") and only_offroad(started, params, CP)
+  def _fordlatd_enabled(started, params, CP):
+    # Only while driving a Ford in angle mode with learning switched on. Reads only; it writes a
+    # bounded delta the car controller may apply on top of the user's own setting.
+    return (started and CP.brand == "ford"
+            and params.get_bool("FordAngleLearningEnabled"))
   procs += [
     PythonProcess("bp_portal", "bluepilot.backend.bp_portal", _bp_portal_enabled),
     PythonProcess("bp_route_preprocessor", "bluepilot.backend.routes.preprocessor", _bp_route_preprocessor_enabled),
+    PythonProcess("fordlatd", "bluepilot.selfdrive.fordlatd", _fordlatd_enabled),
   ]
 
 if os.path.exists("./github_runner.sh"):
