@@ -359,7 +359,7 @@ function op_preflight() {
   # touching upstream lines and inviting sync conflicts, so it is deliberately not a gate here.
   echo -e "${BOLD}[1/3] lint (fork-owned trees)${NC}"
   op_run_command ruff check bluepilot openpilot/sunnypilot opendbc_repo/opendbc/sunnypilot \
-                 opendbc_repo/opendbc/car/ford tools || return 1
+                 opendbc_repo/opendbc/car/ford tools openpilot/tools || return 1
 
   echo -e "${BOLD}[2/3] unit tests${NC}"
   op_run_command tools/test_runner.py bluepilot openpilot/selfdrive/ui openpilot/sunnypilot \
