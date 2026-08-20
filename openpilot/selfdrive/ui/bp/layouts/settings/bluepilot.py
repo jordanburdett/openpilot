@@ -558,6 +558,53 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
+    # Phase-lead controls. These change WHEN the command arrives, not how much of it there is:
+    # in steady state the predicted and planned curvature agree, so they leave the gain alone.
+    # Reach for these when the car under-turns but adding gain makes it snappy or ping-pong.
+    self._path_angle_blend_ratio = float_control_item(
+      lambda: tr("Path Angle Blend Ratio"),
+      lambda: tr("How much of the command comes from the model's predicted curvature ahead vs the plan for now (0 = plan only). Default 0.50."),
+      param="FordPathAngleBlendRatio",
+      min_value=0.0,
+      max_value=1.0,
+      step=0.05,
+      icon="chffr_wheel.png"
+    )
+    self._vlt_base_max = float_control_item(
+      lambda: tr("Lookahead Delay Cap"),
+      lambda: tr("Seconds. Caps the learned steering delay used to pick how far ahead to look. Raise toward your learned delay to add lead. Default 0.15."),
+      param="FordVLTBaseMax",
+      min_value=0.10,
+      max_value=0.45,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
+    self._vlt_extra_max = float_control_item(
+      lambda: tr("Extra Lookahead"),
+      lambda: tr("Seconds of extra lookahead at low speed and gentle curvature. Tapers to zero above 55 mph. Default 0.10."),
+      param="FordVLTExtraMax",
+      min_value=0.0,
+      max_value=0.30,
+      step=0.01,
+      icon="chffr_wheel.png"
+    )
+
+    # Continuous learning. Your two adjustment factors stay the anchor; the learner only adds a
+    # bounded delta on top of them, and resets that delta if you change the factor yourself.
+    self._angle_learning_enabled = toggle_item(
+      lambda: tr("Continuous Learning"),
+      lambda: tr("Tune steering gain automatically as you drive, starting from your settings above. Bounded to 0.15 either way."),
+      initial_state=self._safe_get_bool(self._params, "FordAngleLearningEnabled"),
+      callback=lambda state: self._toggle_callback(state, "FordAngleLearningEnabled"),
+      icon="chffr_wheel.png"
+    )
+    self._angle_learning_reset = button_item(
+      lambda: tr("Reset Learning to Manual"),
+      lambda: tr("RESET"),
+      lambda: tr("Discard everything learned and go back to exactly the adjustment factors above."),
+      callback=self._reset_angle_learning
+    )
+
     # Lane centering trim — angle mode's "advanced lane positioning" (curvature-domain trim,
     # see lane_center_trim.py). Mirrors the curv-mode items below, one-to-one, but scoped to
     # its own _ang params.
@@ -672,6 +719,11 @@ class BluePilotLayout(Widget):
       self._low_speed_curv_factor,
       self._high_speed_curv_factor,
       self._high_speed_dampening,
+      self._path_angle_blend_ratio,
+      self._vlt_base_max,
+      self._vlt_extra_max,
+      self._angle_learning_enabled,
+      self._angle_learning_reset,
       self._lane_change_factor_high_ang,
       self._enable_lane_positioning_ang,
       self._custom_path_offset_ang,
@@ -925,6 +977,11 @@ class BluePilotLayout(Widget):
     self._low_speed_curv_factor.action_item.set_enabled(is_angle)
     self._high_speed_curv_factor.action_item.set_enabled(is_angle)
     self._high_speed_dampening.action_item.set_enabled(is_angle)
+    self._path_angle_blend_ratio.action_item.set_enabled(is_angle)
+    self._vlt_base_max.action_item.set_enabled(is_angle)
+    self._vlt_extra_max.action_item.set_enabled(is_angle)
+    self._angle_learning_enabled.action_item.set_enabled(is_angle)
+    self._angle_learning_reset.action_item.set_enabled(is_angle)
     self._lane_change_factor_high_ang.action_item.set_enabled(is_angle)
     self._enable_lane_positioning_ang.action_item.set_enabled(is_angle)
     self._custom_path_offset_ang.action_item.set_enabled(is_angle and lane_pos_ang)
@@ -1043,6 +1100,27 @@ class BluePilotLayout(Widget):
       callback=handle_selection
     )
     gui_app.push_widget(self._preferred_network_dialog)
+
+  def _reset_angle_learning(self):
+    """Discard the learned angle-gain deltas and go back to the user's own factors."""
+
+    def handle_confirm(result: DialogResult):
+      if result == DialogResult.CONFIRM:
+        try:
+          self._params.remove("FordAngleLearned")
+        except Exception:
+          pass
+        # fordlatd also watches this and resets its in-memory state; the removal above covers
+        # the case where it is not running.
+        self._params.put_bool("FordAngleLearningReset", True, block=False)
+        cloudlog.info("BluePilot: reset Ford angle-mode learning to manual")
+
+    dialog = ConfirmDialog(
+      tr("Discard everything the car has learned about steering gain and return to your own adjustment factors?"),
+      tr("Reset"),
+      callback=handle_confirm
+    )
+    gui_app.push_widget(dialog)
 
   def _clear_model_cache(self):
     """Clear ModelRunnerTypeCache and ModelManager_ActiveBundle, then reboot."""
